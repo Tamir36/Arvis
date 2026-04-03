@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { getSession, signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { signIn } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,9 +15,17 @@ const loginSchema = z.object({
 type LoginForm = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("error");
+    if (authError) {
+      setAuthErrorMessage("Нэвтрэх нэр/имэйл эсвэл нууц үг буруу байна");
+    }
+  }, []);
 
   const {
     register,
@@ -31,31 +38,11 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginForm) => {
     setError(null);
     try {
-      const result = await signIn("credentials", {
+      await signIn("credentials", {
         email: data.identifier,
         password: data.password,
-        redirect: false,
+        callbackUrl: "/",
       });
-
-      if (result?.error) {
-        setError("Нэвтрэх нэр/имэйл эсвэл нууц үг буруу байна");
-        return;
-      }
-
-      if (!result || result.ok !== true) {
-        setError("Нэвтрэх боломжгүй байна. Дахин оролдоно уу.");
-        return;
-      }
-
-      const session = await getSession();
-      if (!session?.user?.id) {
-        setError("Нэвтрэлт амжилтгүй боллоо. Мэдээллээ шалгаад дахин оролдоно уу.");
-        return;
-      }
-
-      // Redirect based on role (Next.js will handle via middleware)
-      router.push("/");
-      router.refresh();
     } catch {
       setError("Системийн алдаа гарлаа. Дахин оролдоно уу.");
     }
@@ -78,12 +65,12 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
           {/* Error */}
-          {error && (
+          {(error || authErrorMessage) && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
               <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
-              {error}
+              {error ?? authErrorMessage}
             </div>
           )}
 
