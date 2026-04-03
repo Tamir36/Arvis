@@ -1,17 +1,17 @@
-import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-export default auth((req) => {
+export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const session = req.auth;
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   const operatorAllowedAdminPaths = ["/admin/stock", "/admin/stock-movements"];
 
   // Allow public paths
   const publicPaths = ["/login", "/api/auth"];
   if (publicPaths.some((p) => pathname.startsWith(p))) {
     // Redirect logged-in users away from login page
-    if (session && pathname === "/login") {
-      const role = session.user?.role;
+    if (token && pathname === "/login") {
+      const role = token.role;
       if (role === "ADMIN") return NextResponse.redirect(new URL("/admin", req.url));
       if (role === "OPERATOR") return NextResponse.redirect(new URL("/operator", req.url));
       if (role === "DRIVER") return NextResponse.redirect(new URL("/driver", req.url));
@@ -20,11 +20,11 @@ export default auth((req) => {
   }
 
   // Not logged in → login page
-  if (!session) {
+  if (!token) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  const role = session.user?.role;
+  const role = token.role;
 
   // Root redirect based on role
   if (pathname === "/") {
@@ -54,7 +54,7 @@ export default auth((req) => {
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.png$|.*\\.jpg$|.*\\.svg$).*)"],
