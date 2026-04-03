@@ -3,14 +3,23 @@ import { getToken } from "next-auth/jwt";
 
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   const operatorAllowedAdminPaths = ["/admin/stock", "/admin/stock-movements"];
 
-  // Allow public paths
-  const publicPaths = ["/login", "/api/auth"];
-  if (publicPaths.some((p) => pathname.startsWith(p))) {
-    // Redirect logged-in users away from login page
-    if (token && pathname === "/login") {
+  // Always allow auth endpoints to avoid auth-loop failures.
+  if (pathname.startsWith("/api/auth")) {
+    return NextResponse.next();
+  }
+
+  let token: Awaited<ReturnType<typeof getToken>> = null;
+  try {
+    token = await getToken({ req, secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET });
+  } catch {
+    token = null;
+  }
+
+  // Public login page
+  if (pathname === "/login") {
+    if (token) {
       const role = token.role;
       if (role === "ADMIN") return NextResponse.redirect(new URL("/admin", req.url));
       if (role === "OPERATOR") return NextResponse.redirect(new URL("/operator", req.url));
