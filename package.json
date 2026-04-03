@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "railway:build": "npm run db:generate && npm run build",
-    "railway:start": "npx prisma migrate deploy && npm run start",
+    "railway:start": "node scripts/railway-start.mjs",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
