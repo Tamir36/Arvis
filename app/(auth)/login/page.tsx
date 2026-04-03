@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -39,6 +39,17 @@ export default function LoginPage() {
 
       if (result?.error) {
         setError("Нэвтрэх нэр/имэйл эсвэл нууц үг буруу байна");
+        return;
+      }
+
+      if (!result || result.ok !== true) {
+        setError("Нэвтрэх боломжгүй байна. Дахин оролдоно уу.");
+        return;
+      }
+
+      const session = await getSession();
+      if (!session?.user?.id) {
+        setError("Нэвтрэлт амжилтгүй боллоо. Мэдээллээ шалгаад дахин оролдоно уу.");
         return;
       }
 

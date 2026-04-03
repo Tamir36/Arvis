@@ -29,45 +29,50 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Нууц үг", type: "password" },
       },
       async authorize(credentials) {
-        const [{ prisma }, bcryptModule] = await Promise.all([
-          import("@/lib/db"),
-          import("bcryptjs"),
-        ]);
+        try {
+          const [{ prisma }, bcryptModule] = await Promise.all([
+            import("@/lib/db"),
+            import("bcryptjs"),
+          ]);
 
-        const bcrypt = bcryptModule.default;
+          const bcrypt = (bcryptModule as any).default ?? bcryptModule;
 
-        const parsed = z
-          .object({
-            email: z.string().min(3),
-            password: z.string().min(4),
-          })
-          .safeParse(credentials);
+          const parsed = z
+            .object({
+              email: z.string().min(3),
+              password: z.string().min(4),
+            })
+            .safeParse(credentials);
 
-        if (!parsed.success) return null;
+          if (!parsed.success) return null;
 
-        const { email: identifier, password } = parsed.data;
+          const { email: identifier, password } = parsed.data;
 
-        const user = await prisma.user.findFirst({
-          where: {
-            isActive: true,
-            OR: [
-              { email: identifier },
-              { name: identifier },
-            ],
-          },
-        });
+          const user = await prisma.user.findFirst({
+            where: {
+              isActive: true,
+              OR: [
+                { email: identifier },
+                { name: identifier },
+              ],
+            },
+          });
 
-        if (!user) return null;
+          if (!user) return null;
 
-        const match = await bcrypt.compare(password, user.password);
-        if (!match) return null;
+          const match = await bcrypt.compare(password, user.password);
+          if (!match) return null;
 
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          };
+        } catch (error) {
+          console.error("Credentials authorize failed:", error);
+          return null;
+        }
       },
     }),
   ],
