@@ -2,6 +2,18 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { z } from "zod";
 
+function normalizeAuthUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
+const resolvedAuthUrl = normalizeAuthUrl(process.env.AUTH_URL ?? process.env.NEXTAUTH_URL);
+if (resolvedAuthUrl) {
+  process.env.AUTH_URL = resolvedAuthUrl;
+  process.env.NEXTAUTH_URL = resolvedAuthUrl;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
