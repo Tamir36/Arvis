@@ -61,11 +61,13 @@ async function generateUniqueSlugForUpdate(name: string, productId: string): Pro
   }
 }
 
-export async function GET(req: NextRequest, { params }: { params: Params }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const [product, transferItems, salesLogs] = await Promise.all([
       prisma.product.findUnique({
-        where: { id: params.id },
+        where: { id },
         include: {
           category: true,
           images: { orderBy: { sortOrder: "asc" } },
@@ -87,7 +89,7 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
         },
       }),
       prisma.inventoryTransferItem.findMany({
-        where: { productId: params.id },
+        where: { productId: id },
         include: {
           transfer: {
             include: {
@@ -103,7 +105,7 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
       prisma.orderAuditLog.findMany({
         where: {
           action: { in: ["DRIVER_STOCK_DEDUCTED", "DRIVER_STOCK_RESTORED"] },
-          newValue: { contains: params.id },
+          newValue: { contains: id },
         },
         include: {
           user: { select: { id: true, name: true } },
@@ -150,7 +152,7 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
           }
 
           const qty = parseAuditItems(log.newValue)
-            .filter((item) => item.productId === params.id)
+            .filter((item) => item.productId === id)
             .reduce((sum, item) => sum + item.qty, 0);
 
           if (qty <= 0) return null;
@@ -177,8 +179,10 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: Params }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const session = await auth();
     if (session?.user?.role !== "ADMIN") {
       return NextResponse.json({ error: "Хандах эрх байхгүй" }, { status: 403 });
@@ -192,7 +196,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     }
 
     const currentProduct = await prisma.product.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { id: true },
     });
 
@@ -215,7 +219,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
 
     if (name) {
       updateData.name = name;
-      updateData.slug = await generateUniqueSlugForUpdate(name, params.id);
+      updateData.slug = await generateUniqueSlugForUpdate(name, id);
     }
 
     if (images) {
@@ -230,7 +234,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     }
 
     const product = await prisma.product.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
       include: {
         category: true,
@@ -254,7 +258,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
 
     const [transferItems, salesLogs] = await Promise.all([
       prisma.inventoryTransferItem.findMany({
-        where: { productId: params.id },
+        where: { productId: id },
         include: {
           transfer: {
             include: {
@@ -270,7 +274,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
       prisma.orderAuditLog.findMany({
         where: {
           action: { in: ["DRIVER_STOCK_DEDUCTED", "DRIVER_STOCK_RESTORED"] },
-          newValue: { contains: params.id },
+          newValue: { contains: id },
         },
         include: {
           user: { select: { id: true, name: true } },
@@ -313,7 +317,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
           }
 
           const qty = parseAuditItems(log.newValue)
-            .filter((item) => item.productId === params.id)
+            .filter((item) => item.productId === id)
             .reduce((sum, item) => sum + item.qty, 0);
 
           if (qty <= 0) return null;
@@ -340,15 +344,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Params }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const session = await auth();
     if (session?.user?.role !== "ADMIN") {
       return NextResponse.json({ error: "Хандах эрх байхгүй" }, { status: 403 });
     }
 
     await prisma.product.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true });

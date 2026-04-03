@@ -113,10 +113,12 @@ function buildStockAuditPayload(
   });
 }
 
-export async function GET(req: NextRequest, { params }: { params: Params }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const order = await prisma.order.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         customer: {
           select: {
@@ -168,8 +170,10 @@ export async function GET(req: NextRequest, { params }: { params: Params }) {
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: Params }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
@@ -177,7 +181,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
 
     const body = await req.json();
     const order = await prisma.order.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         customer: true,
         items: true,
@@ -678,12 +682,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
         if (targetDriverId && nextDriverAgentId) {
           // Keep delivery assignment agent in sync with order.assignedTo to avoid stale driver lists.
           await tx.deliveryAssignment.updateMany({
-            where: { orderId: params.id },
+            where: { orderId: id },
             data: { agentId: nextDriverAgentId },
           });
         } else if (!targetDriverId) {
           await tx.deliveryAssignment.deleteMany({
-            where: { orderId: params.id },
+            where: { orderId: id },
           });
         }
       }
@@ -859,7 +863,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
       }
 
       return tx.order.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           ...updateData,
           auditLogs: {
@@ -936,8 +940,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Params }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
@@ -953,15 +959,15 @@ export async function DELETE(req: NextRequest, { params }: { params: Params }) {
       return NextResponse.json({ error: "Зөвхөн админ устгах эрхтэй" }, { status: 403 });
     }
 
-    const existing = await prisma.order.findUnique({ where: { id: params.id } });
+    const existing = await prisma.order.findUnique({ where: { id } });
     if (!existing) {
       return NextResponse.json({ error: "Захиалга олдсонгүй" }, { status: 404 });
     }
 
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.deliveryAssignment.deleteMany({ where: { orderId: params.id } });
-      await tx.orderAuditLog.deleteMany({ where: { orderId: params.id } });
-      await tx.order.delete({ where: { id: params.id } });
+      await tx.deliveryAssignment.deleteMany({ where: { orderId: id } });
+      await tx.orderAuditLog.deleteMany({ where: { orderId: id } });
+      await tx.order.delete({ where: { id } });
     });
 
     return NextResponse.json({ success: true });

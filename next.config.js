@@ -11,9 +11,7 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    serverComponentsExternalPackages: ["@prisma/client", "bcryptjs", "sharp"],
-  },
+  serverExternalPackages: ["@prisma/client", "bcryptjs", "sharp"],
   webpack: (config, { dev }) => {
     if (dev) {
       // Prevent intermittent missing chunk/module errors during hot reload.

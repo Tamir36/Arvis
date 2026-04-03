@@ -18,8 +18,10 @@ function nextDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: Params }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
@@ -43,7 +45,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     const updatedOrder = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: {
-          id: params.id,
+          id,
           assignedToId: session.user.id,
         },
         include: {

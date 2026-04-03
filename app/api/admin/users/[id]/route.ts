@@ -30,8 +30,10 @@ async function ensureAdmin() {
   return { session };
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: Params }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const adminCheck = await ensureAdmin();
     if (adminCheck.error) {
       return adminCheck.error;
@@ -46,7 +48,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     }
 
     const target = await prisma.user.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { id: true, role: true },
     });
 
@@ -59,7 +61,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
 
     const duplicate = await prisma.user.findFirst({
       where: {
-        id: { not: params.id },
+        id: { not: id },
         name: username,
       },
       select: { id: true },
@@ -77,7 +79,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
     }
 
     const updated = await prisma.user.update({
-      where: { id: params.id },
+      where: { id },
       data: { name: username, role },
       select: {
         id: true,
@@ -95,20 +97,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Params }) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: Params }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const adminCheck = await ensureAdmin();
     if (adminCheck.error) {
       return adminCheck.error;
     }
 
     const session = adminCheck.session!;
-    if (params.id === session.user.id) {
+    if (id === session.user.id) {
       return NextResponse.json({ error: "Өөрийгөө устгах боломжгүй" }, { status: 400 });
     }
 
     const target = await prisma.user.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { id: true, role: true },
     });
 
@@ -123,7 +127,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Params }) {
       }
     }
 
-    await prisma.user.delete({ where: { id: params.id } });
+    await prisma.user.delete({ where: { id } });
 
     return NextResponse.json({ success: true, message: "Хэрэглэгч устгагдлаа" });
   } catch (error) {

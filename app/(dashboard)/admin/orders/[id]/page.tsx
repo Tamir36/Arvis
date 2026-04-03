@@ -11,7 +11,7 @@ import PaymentReceivedToggle from "./_components/PaymentReceivedToggle";
 import { ArrowLeft, User, MapPin, Package, CreditCard, Clock } from "lucide-react";
 
 interface OrderDetailPageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 async function getOrder(id: string) {
@@ -43,7 +43,8 @@ async function getOrder(id: string) {
 }
 
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
-  const order = await getOrder(params.id);
+  const { id } = await params;
+  const order = await getOrder(id);
   if (!order) notFound();
 
   return (

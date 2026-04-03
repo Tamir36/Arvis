@@ -14,8 +14,10 @@ const stockAdjustSchema = z.object({
   note: z.string().optional(),
 });
 
-export async function POST(req: NextRequest, { params }: { params: Params }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
+    const { id } = await params;
+
     const session = await auth();
     if (session?.user?.role !== "ADMIN") {
       return NextResponse.json({ error: "Хандах эрх байхгүй" }, { status: 403 });
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: Params }) {
 
     const result = await prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({
-        where: { id: params.id },
+        where: { id },
         include: { inventory: true },
       });
 
