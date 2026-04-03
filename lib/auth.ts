@@ -1,7 +1,5 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { prisma } from "@/lib/db";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -19,6 +17,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: "Нууц үг", type: "password" },
       },
       async authorize(credentials) {
+        const [{ prisma }, bcryptModule] = await Promise.all([
+          import("@/lib/db"),
+          import("bcryptjs"),
+        ]);
+
+        const bcrypt = bcryptModule.default;
+
         const parsed = z
           .object({
             email: z.string().min(3),
