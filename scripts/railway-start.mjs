@@ -45,6 +45,12 @@ async function main() {
     }
   }
 
+  const ensureUsers = await run("node", ["scripts/ensure-auth-users.mjs"]);
+  if (ensureUsers.code !== 0) {
+    process.exit(ensureUsers.code);
+    return;
+  }
+
   const app = await run("npm", ["run", "start"]);
   process.exit(app.code);
 }
