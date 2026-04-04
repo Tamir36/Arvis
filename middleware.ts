@@ -1,8 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export default async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
   const operatorAllowedAdminPaths = ["/admin/stock", "/admin/stock-movements"];
 
   // Always allow auth endpoints to avoid auth-loop failures.
@@ -10,11 +12,10 @@ export default async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  let token: Awaited<ReturnType<typeof getToken>> = null;
-  try {
-    token = await getToken({ req, secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET });
-  } catch {
-    token = null;
+  // Try secure cookie name first (production HTTPS), then non-secure (fallback).
+  let token = await getToken({ req, secret, secureCookie: true });
+  if (!token) {
+    token = await getToken({ req, secret, secureCookie: false });
   }
 
   // Public login page
