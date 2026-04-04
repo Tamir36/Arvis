@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+function parseDateKey(value: string | null): Date {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 export async function GET(request: Request) {
   const session = await auth();
   if (!session || session.user.role !== "ADMIN") {
@@ -9,10 +19,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const dateParam = searchParams.get("date");
-
-  const now = new Date();
-  const targetDate = dateParam ? new Date(dateParam) : now;
+  const targetDate = parseDateKey(searchParams.get("date"));
   const y = targetDate.getFullYear();
   const m = targetDate.getMonth();
   const d = targetDate.getDate();

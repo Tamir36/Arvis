@@ -365,19 +365,6 @@ export async function GET(req: NextRequest) {
       if (fromDateValue) dateRange.gte = fromDateValue;
       if (toDateValue) dateRange.lte = toDateValue;
 
-      const carryoverEnd = toDateValue
-        ?? (fromDateValue
-          ? new Date(
-              fromDateValue.getFullYear(),
-              fromDateValue.getMonth(),
-              fromDateValue.getDate(),
-              23,
-              59,
-              59,
-              999,
-            )
-          : null);
-
       if (dateRange.gte || dateRange.lte) {
         andFilters.push({
           OR: [
@@ -406,21 +393,9 @@ export async function GET(req: NextRequest) {
                   ],
                 },
                 {
-                  OR: [
-                    {
-                      AND: [
-                        { status: { notIn: ["DELIVERED", "CANCELLED"] } },
-                        { createdAt: dateRange },
-                      ],
-                    },
-                    ...(carryoverEnd
-                      ? [
-                          {
-                            status: { in: [...ROLLOVER_STATUSES] },
-                            createdAt: { lte: carryoverEnd },
-                          },
-                        ]
-                      : []),
+                  AND: [
+                    { status: { notIn: ["DELIVERED", "CANCELLED"] } },
+                    { createdAt: dateRange },
                   ],
                 },
               ],

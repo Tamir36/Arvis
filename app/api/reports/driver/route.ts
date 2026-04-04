@@ -4,6 +4,16 @@ import { prisma } from "@/lib/db";
 
 const DELIVERY_FEE_PER_ORDER = 6000;
 
+function parseDateKey(value: string | null): Date {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
 function computeOrderAmounts(total: number, status: string, paymentStatus: string) {
   const isDelivered = status === "DELIVERED";
   const driverFee = isDelivered ? DELIVERY_FEE_PER_ORDER : 0;
@@ -28,10 +38,7 @@ export async function GET(request: Request) {
   const isDriver = session.user.role === "DRIVER";
 
   const { searchParams } = new URL(request.url);
-  const dateParam = searchParams.get("date");
-
-  const now = new Date();
-  const targetDate = dateParam ? new Date(dateParam) : now;
+  const targetDate = parseDateKey(searchParams.get("date"));
   const y = targetDate.getFullYear();
   const m = targetDate.getMonth();
   const d = targetDate.getDate();
