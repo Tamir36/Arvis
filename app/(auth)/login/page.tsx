@@ -140,26 +140,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Demo accounts */}
-        <div className="mt-6 pt-6 border-t border-slate-100">
-          <p className="text-xs font-medium text-slate-500 mb-3">Туршилтын бүртгэл:</p>
-          <div className="space-y-2">
-            {[
-              { role: "Админ", email: "admin@arvis.mn", pw: "admin123", color: "blue" },
-              { role: "Оператор", email: "operator@arvis.mn", pw: "operator123", color: "indigo" },
-              { role: "Жолооч", email: "driver@arvis.mn", pw: "driver123", color: "orange" },
-            ].map((acc) => (
-              <div
-                key={acc.email}
-                className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-xs"
-              >
-                <span className={`font-medium text-${acc.color}-600`}>{acc.role}</span>
-                <span className="text-slate-500">{acc.email}</span>
-                <span className="font-mono text-slate-600">{acc.pw}</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
 
       {/* Footer */}
