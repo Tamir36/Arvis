@@ -45,30 +45,7 @@ export async function GET(request: Request) {
       assignedToId: { not: null },
       ...(isDriver ? { assignedToId: session.user.id } : {}),
       status: "DELIVERED",
-      OR: [
-        {
-          delivery: {
-            is: {
-              timeSlot: {
-                is: {
-                  date: { gte: dayStart, lte: dayEnd },
-                },
-              },
-            },
-          },
-        },
-        {
-          AND: [
-            {
-              OR: [
-                { delivery: { is: null } },
-                { delivery: { is: { timeSlotId: null } } },
-              ],
-            },
-            { createdAt: { gte: dayStart, lte: dayEnd } },
-          ],
-        },
-      ],
+      updatedAt: { gte: dayStart, lte: dayEnd },
     },
     select: {
       id: true,

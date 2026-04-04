@@ -382,6 +382,11 @@ export async function GET(req: NextRequest) {
         andFilters.push({
           OR: [
             {
+              status: { in: ["DELIVERED", "CANCELLED"] },
+              updatedAt: dateRange,
+            },
+            {
+              status: { notIn: ["DELIVERED", "CANCELLED"] },
               delivery: {
                 is: {
                   timeSlot: {
@@ -403,7 +408,10 @@ export async function GET(req: NextRequest) {
                 {
                   OR: [
                     {
-                      createdAt: dateRange,
+                      AND: [
+                        { status: { notIn: ["DELIVERED", "CANCELLED"] } },
+                        { createdAt: dateRange },
+                      ],
                     },
                     ...(carryoverEnd
                       ? [

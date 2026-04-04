@@ -20,38 +20,31 @@ export async function GET(request: Request) {
   const dayStart = new Date(y, m, d, 0, 0, 0, 0);
   const dayEnd = new Date(y, m, d, 23, 59, 59, 999);
 
-  // Find CREATED audit logs within the day to identify who registered each order
-  const auditLogs = await prisma.orderAuditLog.findMany({
+  // Delivered orders should be reported by the day their status changed to DELIVERED.
+  const deliveredOrders = await prisma.order.findMany({
     where: {
-      action: "CREATED",
-      createdAt: { gte: dayStart, lte: dayEnd },
-      user: { role: "OPERATOR" },
+      status: "DELIVERED",
+      updatedAt: { gte: dayStart, lte: dayEnd },
     },
     select: {
-      orderId: true,
-      user: { select: { id: true, name: true } },
-      createdAt: true,
-      order: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      total: true,
+      customer: { select: { name: true, phone: true } },
+      items: {
         select: {
-          id: true,
-          orderNumber: true,
-          status: true,
+          name: true,
+          qty: true,
           total: true,
-          customer: { select: { name: true, phone: true } },
-          items: {
-            select: {
-              name: true,
-              qty: true,
-              total: true,
-            },
-          },
         },
       },
+      updatedAt: true,
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { updatedAt: "asc" },
   });
 
-  const orderIds = Array.from(new Set(auditLogs.map((log) => log.orderId)));
+  const orderIds = deliveredOrders.map((order) => order.id);
 
   const driverAssignmentLogs = orderIds.length > 0
     ? await prisma.orderAuditLog.findMany({
@@ -107,13 +100,11 @@ export async function GET(request: Request) {
     }
   >();
 
-  for (const log of auditLogs) {
-    if (!log.order) continue;
-    const owner = firstAssignmentByOrder.get(log.orderId);
+    for (const order of deliveredOrders) {
+      const owner = firstAssignmentByOrder.get(order.id);
     if (!owner) continue;
-    if (String(log.order.status) !== "DELIVERED") continue;
-    const operatorId = owner?.operatorId ?? log.user.id;
-    const operatorName = owner?.operatorName ?? log.user.name;
+      const operatorId = owner.operatorId;
+      const operatorName = owner.operatorName;
 
     const key = operatorId;
     if (!operatorMap.has(key)) {
@@ -124,18 +115,18 @@ export async function GET(request: Request) {
       });
     }
     operatorMap.get(key)!.orders.push({
-      orderId: log.order.id,
-      orderNumber: log.order.orderNumber,
-      status: log.order.status,
-      total: Number(log.order.total),
-      customerName: log.order.customer.name,
-      customerPhone: log.order.customer.phone,
-      items: log.order.items.map((it: { name: string; qty: number; total: unknown }) => ({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      total: Number(order.total),
+      customerName: order.customer.name,
+      customerPhone: order.customer.phone,
+      items: order.items.map((it: { name: string; qty: number; total: unknown }) => ({
         name: it.name,
         qty: it.qty,
         total: Number(it.total),
       })),
-      createdAt: owner?.assignedAt ?? log.createdAt,
+      createdAt: order.updatedAt,
     });
   }
 
