@@ -9,34 +9,39 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("Purging business data: orders, customers, and products...");
+  console.log("Purging all app data except user accounts...");
 
-  await prisma.$transaction(async (tx) => {
-    // Order-related
-    await tx.orderAuditLog.deleteMany({});
-    await tx.deliveryAssignment.deleteMany({});
-    await tx.orderItem.deleteMany({});
-    await tx.order.deleteMany({});
+  // Order-related
+  await prisma.orderAuditLog.deleteMany({});
+  await prisma.deliveryAssignment.deleteMany({});
+  await prisma.timeSlot.deleteMany({});
+  await prisma.deliveryZone.deleteMany({});
+  await prisma.orderItem.deleteMany({});
+  await prisma.order.deleteMany({});
+  await prisma.coupon.deleteMany({});
 
-    // Customer-related
-    await tx.customer.deleteMany({});
+  // Customer-related
+  await prisma.customer.deleteMany({});
 
-    // Product-related dependencies
-    await tx.stockMovement.deleteMany({});
-    await tx.inventoryTransferItem.deleteMany({});
-    await tx.inventoryTransfer.deleteMany({});
-    await tx.driverStock.deleteMany({});
-    await tx.priceHistory.deleteMany({});
-    await tx.productVariant.deleteMany({});
-    await tx.productImage.deleteMany({});
-    await tx.inventory.deleteMany({});
-    await tx.bundleItem.deleteMany({});
+  // Product-related dependencies
+  await prisma.stockMovement.deleteMany({});
+  await prisma.inventoryTransferItem.deleteMany({});
+  await prisma.inventoryTransfer.deleteMany({});
+  await prisma.driverStock.deleteMany({});
+  await prisma.priceHistory.deleteMany({});
+  await prisma.productVariant.deleteMany({});
+  await prisma.productImage.deleteMany({});
+  await prisma.inventory.deleteMany({});
+  await prisma.bundleItem.deleteMany({});
+  await prisma.bundle.deleteMany({});
 
-    // Product records
-    await tx.product.deleteMany({});
-  });
+  // Product records
+  await prisma.product.deleteMany({});
 
-  console.log("Business data purge completed.");
+  // Catalog metadata
+  await prisma.category.deleteMany({});
+
+  console.log("App data purge completed. User accounts were preserved.");
 }
 
 main()

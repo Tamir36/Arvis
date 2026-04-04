@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:purge-business": "node scripts/purge-business-data.mjs --force",
+    "db:purge-app-data": "node scripts/purge-business-data.mjs --force",
     "db:studio": "prisma studio"
   },
   "dependencies": {

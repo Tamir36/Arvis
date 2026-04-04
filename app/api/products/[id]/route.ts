@@ -353,8 +353,27 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<Par
       return NextResponse.json({ error: "Хандах эрх байхгүй" }, { status: 403 });
     }
 
-    await prisma.product.delete({
-      where: { id },
+    const usedInOrders = await prisma.orderItem.count({
+      where: { productId: id },
+    });
+
+    if (usedInOrders > 0) {
+      return NextResponse.json(
+        { error: "Энэ бараа захиалгад ашиглагдсан тул шууд устгах боломжгүй" },
+        { status: 400 },
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stockMovement.deleteMany({ where: { productId: id } });
+      await tx.inventoryTransferItem.deleteMany({ where: { productId: id } });
+      await tx.driverStock.deleteMany({ where: { productId: id } });
+      await tx.priceHistory.deleteMany({ where: { productId: id } });
+      await tx.productVariant.deleteMany({ where: { productId: id } });
+      await tx.productImage.deleteMany({ where: { productId: id } });
+      await tx.inventory.deleteMany({ where: { productId: id } });
+      await tx.bundleItem.deleteMany({ where: { productId: id } });
+      await tx.product.delete({ where: { id } });
     });
 
     return NextResponse.json({ success: true });
