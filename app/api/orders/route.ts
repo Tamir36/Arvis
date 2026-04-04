@@ -372,64 +372,73 @@ export async function GET(req: NextRequest) {
         && (!dateRange.lte || dateRange.lte >= todayStart);
 
       if (dateRange.gte || dateRange.lte) {
-        andFilters.push({
-          OR: [
-            {
-              status: { in: ["DELIVERED", "CANCELLED"] },
-              updatedAt: dateRange,
-            },
-            {
-              status: { notIn: ["DELIVERED", "CANCELLED"] },
-              delivery: {
-                is: {
-                  timeSlot: {
-                    is: {
-                      date: dateRange,
-                    },
+        const dateOrFilters: Prisma.OrderWhereInput[] = [
+          {
+            status: { in: ["DELIVERED", "CANCELLED"] },
+            updatedAt: dateRange,
+          },
+          {
+            status: { notIn: ["DELIVERED", "CANCELLED"] },
+            delivery: {
+              is: {
+                timeSlot: {
+                  is: {
+                    date: dateRange,
                   },
                 },
               },
             },
-            {
-              AND: [
-                {
-                  OR: [
-                    { delivery: { is: null } },
-                    { delivery: { is: { timeSlotId: null } } },
-                  ],
-                },
-                {
-                  AND: [
-                    { status: { notIn: ["DELIVERED", "CANCELLED"] } },
-                    { createdAt: dateRange },
-                  ],
-                },
-                ...(includesToday
-                  ? [
-                      {
-                        status: { in: [...ROLLOVER_STATUSES] },
-                        createdAt: { lt: todayStart },
-                        OR: [
-                          { delivery: { is: null } },
-                          { delivery: { is: { timeSlotId: null } } },
-                          {
-                            delivery: {
-                              is: {
-                                timeSlot: {
-                                  is: {
-                                    date: { lt: todayStart },
-                                  },
-                                },
-                              },
-                            },
+          },
+          {
+            AND: [
+              {
+                OR: [
+                  { delivery: { is: null } },
+                  { delivery: { is: { timeSlotId: null } } },
+                ],
+              },
+              {
+                status: { notIn: ["DELIVERED", "CANCELLED"] },
+              },
+              {
+                createdAt: dateRange,
+              },
+            ],
+          },
+        ];
+
+        if (includesToday) {
+          dateOrFilters.push({
+            AND: [
+              {
+                status: { in: [...ROLLOVER_STATUSES] },
+              },
+              {
+                createdAt: { lt: todayStart },
+              },
+              {
+                OR: [
+                  { delivery: { is: null } },
+                  { delivery: { is: { timeSlotId: null } } },
+                  {
+                    delivery: {
+                      is: {
+                        timeSlot: {
+                          is: {
+                            date: { lt: todayStart },
                           },
-                        ],
+                        },
                       },
-                    ]
-                  : []),
-              ],
-            },
-          ],
+                    },
+                  },
+                ],
+              },
+            ],
+          });
+        }
+
+        andFilters.push({
+          OR: dateOrFilters,
         });
 
         if (!includesToday) {
