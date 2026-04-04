@@ -9,13 +9,28 @@ interface Params {
 
 const DRIVER_STATUS_VALUES = new Set(["DELIVERED", "LATE_DELIVERED", "RETURNED", "CANCELLED"]);
 const STOCK_DEDUCTED_STATUSES = new Set(["DELIVERED"]);
+const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
 function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "1");
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? "1");
+
+  const utcMidnight = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  const tzAtUtcMidnight = new Date(utcMidnight.toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE }));
+  const offsetMs = tzAtUtcMidnight.getTime() - utcMidnight.getTime();
+  return new Date(utcMidnight.getTime() - offsetMs);
 }
 
 function nextDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {

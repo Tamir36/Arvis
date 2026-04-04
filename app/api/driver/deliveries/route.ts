@@ -3,9 +3,28 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 const AUTO_ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "SHIPPED", "RETURNED"] as const;
+const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
 function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "1");
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? "1");
+
+  const utcMidnight = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  const tzAtUtcMidnight = new Date(utcMidnight.toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE }));
+  const offsetMs = tzAtUtcMidnight.getTime() - utcMidnight.getTime();
+  return new Date(utcMidnight.getTime() - offsetMs);
+}
+
+function nextDay(date: Date): Date {
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
 }
 
 async function rolloverDriverOpenDeliveriesToToday(driverUserId: string) {
@@ -96,12 +115,11 @@ async function rolloverDriverOpenDeliveriesToToday(driverUserId: string) {
 
 function parseDateKey(value: string | null): Date {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return startOfDay(new Date());
   }
 
   const [y, m, d] = value.split("-").map(Number);
-  return new Date(y, m - 1, d);
+  return startOfDay(new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0)));
 }
 
 export async function GET(req: NextRequest) {
@@ -120,8 +138,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const selectedDate = parseDateKey(searchParams.get("date"));
-    const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0, 0);
-    const dayEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59, 999);
+    const dayStart = selectedDate;
+    const dayEnd = new Date(nextDay(dayStart).getTime() - 1);
     const todayStart = startOfDay(new Date());
     const isHistoricalDay = dayEnd < todayStart;
 

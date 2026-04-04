@@ -17,16 +17,44 @@ const CONTACT_LABELS: Record<string, string> = {
 
 const ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
+const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
 let lastRolloverRunAt = 0;
 let rolloverInFlight: Promise<void> | null = null;
 
 function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = Number(parts.find((part) => part.type === "year")?.value ?? "0");
+  const month = Number(parts.find((part) => part.type === "month")?.value ?? "1");
+  const day = Number(parts.find((part) => part.type === "day")?.value ?? "1");
+
+  const utcMidnight = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  const tzAtUtcMidnight = new Date(utcMidnight.toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE }));
+  const offsetMs = tzAtUtcMidnight.getTime() - utcMidnight.getTime();
+  return new Date(utcMidnight.getTime() - offsetMs);
 }
 
 function nextDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
+}
+
+function parseDateStart(value: string | null): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const [y, m, d] = value.split("-").map(Number);
+  return startOfDay(new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0)));
+}
+
+function toDayEnd(dayStart: Date): Date {
+  return new Date(nextDay(dayStart).getTime() - 1);
 }
 
 async function rolloverOpenDeliveriesToToday(userId: string) {
@@ -344,19 +372,16 @@ export async function GET(req: NextRequest) {
       let fromDateValue: Date | null = null;
       let toDateValue: Date | null = null;
 
-      if (fromDate && /^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
-        const [y, m, d] = fromDate.split("-").map(Number);
-        fromDateValue = new Date(y, m - 1, d, 0, 0, 0, 0);
-      }
+      fromDateValue = parseDateStart(fromDate);
 
-      if (toDate && /^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
-        const [y, m, d] = toDate.split("-").map(Number);
-        toDateValue = new Date(y, m - 1, d, 23, 59, 59, 999);
+      const toDateStart = parseDateStart(toDate);
+      if (toDateStart) {
+        toDateValue = toDayEnd(toDateStart);
       }
 
       if (fromDateValue && toDateValue && fromDateValue > toDateValue) {
-        const swappedFrom = new Date(toDateValue.getFullYear(), toDateValue.getMonth(), toDateValue.getDate(), 0, 0, 0, 0);
-        const swappedTo = new Date(fromDateValue.getFullYear(), fromDateValue.getMonth(), fromDateValue.getDate(), 23, 59, 59, 999);
+        const swappedFrom = startOfDay(toDateValue);
+        const swappedTo = toDayEnd(startOfDay(fromDateValue));
         fromDateValue = swappedFrom;
         toDateValue = swappedTo;
       }
