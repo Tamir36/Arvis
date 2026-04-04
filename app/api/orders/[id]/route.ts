@@ -208,6 +208,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     let targetDriverId: string | null = order.assignedToId;
     let targetDriverName: string | null = order.assignedTo?.name ?? null;
     let nextDriverAgentId: string | null = null;
+    let didChangeCustomerPhone = false;
+    let nextCustomerPhone = order.customer.phone ?? "";
+    let nextCustomerAddress = order.customer.address ?? null;
     let didChangeDriver = false;
     let didChangeItems = false;
     let nextItemsForStockValidation = order.items.map((item) => ({
@@ -304,6 +307,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       const currentAddress = order.shippingAddress ?? "";
       if (nextAddress !== currentAddress) {
         updateData.shippingAddress = nextAddress || null;
+        nextCustomerAddress = nextAddress || null;
         auditChanges.push({
           userId: session.user.id,
           action: "ADDRESS_CHANGED",
@@ -322,6 +326,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       }
 
       if (nextPhone !== currentPhone) {
+        didChangeCustomerPhone = true;
+        nextCustomerPhone = nextPhone;
         auditChanges.push({
           userId: session.user.id,
           action: "PHONE_CHANGED",
@@ -658,9 +664,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      if (didChangeCustomerPhone) {
+        const isolatedCustomer = await tx.customer.create({
+          data: {
+            name: order.customer.name,
+            email: order.customer.email || undefined,
+            phone: nextCustomerPhone,
+            address: nextCustomerAddress || undefined,
+            district: order.customer.district || undefined,
+            city: order.customer.city || "Улаанбаатар",
+            notes: order.customer.notes || undefined,
+          },
+          select: { id: true },
+        });
+
+        updateData.customer = {
+          connect: { id: isolatedCustomer.id },
+        };
+      }
+
       if (Object.prototype.hasOwnProperty.call(body, "shippingAddress")) {
         const nextAddress = String(body.shippingAddress ?? "").trim();
-        if (nextAddress !== (order.customer.address ?? "")) {
+        if (!didChangeCustomerPhone && nextAddress !== (order.customer.address ?? "")) {
           await tx.customer.update({
             where: { id: order.customerId },
             data: { address: nextAddress || null },
@@ -670,7 +695,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
       if (Object.prototype.hasOwnProperty.call(body, "customerPhone")) {
         const nextPhone = String(body.customerPhone ?? "").trim();
-        if (nextPhone && nextPhone !== (order.customer.phone ?? "")) {
+        if (!didChangeCustomerPhone && nextPhone && nextPhone !== (order.customer.phone ?? "")) {
           await tx.customer.update({
             where: { id: order.customerId },
             data: { phone: nextPhone },
