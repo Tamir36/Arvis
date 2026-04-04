@@ -122,11 +122,14 @@ export async function GET(req: NextRequest) {
     const selectedDate = parseDateKey(searchParams.get("date"));
     const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0, 0);
     const dayEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59, 999);
+    const todayStart = startOfDay(new Date());
+    const isHistoricalDay = dayEnd < todayStart;
 
     const [deliveries, driverStocks, stockHistory] = await Promise.all([
       prisma.order.findMany({
         where: {
           status: { not: "PENDING" },
+          ...(isHistoricalDay ? { status: { notIn: [...AUTO_ROLLOVER_STATUSES] } } : {}),
           OR: [
             // Current driver assigned to order
             {

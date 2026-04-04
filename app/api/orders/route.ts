@@ -365,6 +365,12 @@ export async function GET(req: NextRequest) {
       if (fromDateValue) dateRange.gte = fromDateValue;
       if (toDateValue) dateRange.lte = toDateValue;
 
+      const todayStart = startOfDay(new Date());
+      const todayEnd = nextDay(todayStart);
+      const includesToday =
+        (!dateRange.gte || dateRange.gte < todayEnd)
+        && (!dateRange.lte || dateRange.lte >= todayStart);
+
       if (dateRange.gte || dateRange.lte) {
         andFilters.push({
           OR: [
@@ -398,10 +404,39 @@ export async function GET(req: NextRequest) {
                     { createdAt: dateRange },
                   ],
                 },
+                ...(includesToday
+                  ? [
+                      {
+                        status: { in: [...ROLLOVER_STATUSES] },
+                        createdAt: { lt: todayStart },
+                        OR: [
+                          { delivery: { is: null } },
+                          { delivery: { is: { timeSlotId: null } } },
+                          {
+                            delivery: {
+                              is: {
+                                timeSlot: {
+                                  is: {
+                                    date: { lt: todayStart },
+                                  },
+                                },
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    ]
+                  : []),
               ],
             },
           ],
         });
+
+        if (!includesToday) {
+          andFilters.push({
+            status: { notIn: [...ROLLOVER_STATUSES] },
+          });
+        }
       }
     }
 
