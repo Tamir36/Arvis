@@ -7,6 +7,8 @@ interface PaginationProps {
   total: number;
   pageSize: number;
   onPageChange: (page: number) => void;
+  pageSizeOptions?: readonly number[];
+  onPageSizeChange?: (size: number) => void;
   className?: string;
 }
 
@@ -16,6 +18,8 @@ export default function Pagination({
   total,
   pageSize,
   onPageChange,
+  pageSizeOptions,
+  onPageSizeChange,
   className,
 }: PaginationProps) {
   const start = (page - 1) * pageSize + 1;
@@ -40,13 +44,28 @@ export default function Pagination({
 
   return (
     <div className={cn("flex items-center justify-between py-3 px-4", className)}>
-      <p className="text-sm text-slate-500">
-        Нийт <span className="font-medium text-slate-700">{total}</span> мөрөөс{" "}
-        <span className="font-medium text-slate-700">
-          {start}–{end}
-        </span>{" "}
-        харуулж байна
-      </p>
+      <div className="flex items-center gap-3">
+        {pageSizeOptions && pageSizeOptions.length > 0 && onPageSizeChange && (
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Нэг хуудсанд харах мөрийн тоо"
+          >
+            {pageSizeOptions.map((size) => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+        )}
+
+        <p className="text-sm text-slate-500">
+          Нийт <span className="font-medium text-slate-700">{total}</span> мөрөөс{" "}
+          <span className="font-medium text-slate-700">
+            {start}–{end}
+          </span>{" "}
+          харуулж байна
+        </p>
+      </div>
 
       <div className="flex items-center gap-1">
         <button

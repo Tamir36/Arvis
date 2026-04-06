@@ -13,6 +13,7 @@ const createUserSchema = z.object({
     .regex(/^[a-zA-Z0-9._-]+$/, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, ., _, - зөвшөөрнө"),
   password: z.string().min(4).max(100),
   role: z.enum(["ADMIN", "DRIVER", "OPERATOR"]),
+  isActive: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -30,6 +31,7 @@ export async function GET() {
       select: {
         id: true,
         name: true,
+        email: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -66,6 +68,7 @@ export async function POST(req: NextRequest) {
     const username = parsed.data.username.trim();
     const role = parsed.data.role;
     const password = parsed.data.password;
+    const isActive = parsed.data.isActive ?? true;
     const generatedEmail = `${username.toLowerCase()}@local.arvis`;
 
     const exists = await prisma.user.findFirst({
@@ -90,13 +93,14 @@ export async function POST(req: NextRequest) {
         email: generatedEmail,
         password: passwordHash,
         role,
-        isActive: true,
+        isActive,
       },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        isActive: true,
         createdAt: true,
       },
     });

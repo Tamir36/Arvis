@@ -304,9 +304,6 @@ export default function StockMovementsPage() {
           <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-slate-700">Барааны жагсаалт</h3>
-              <Button type="button" variant="outline" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={addItem}>
-                Бараа нэмэх
-              </Button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[1.7fr_110px_120px_140px_48px] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
@@ -392,9 +389,11 @@ export default function StockMovementsPage() {
               })}
             </div>
 
-            <p className="text-xs text-slate-400">
-              Боломжит: {parsedFromLocation.type === "WAREHOUSE" ? "хаанаас сонгосон агуулахын үлдэгдэл" : "хаанаас сонгосон жолоочийн үлдэгдэл"}, {destinationLabel} үлдэгдэл: хаашаа сонгосон байршлын үлдэгдэл
-            </p>
+            <div className="pt-1 flex justify-end">
+              <Button type="button" variant="outline" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={addItem}>
+                Бараа нэмэх
+              </Button>
+            </div>
           </div>
 
           <div className="mt-4 space-y-2">
@@ -425,7 +424,7 @@ export default function StockMovementsPage() {
           ) : transfers.length === 0 ? (
             <div className="p-12 text-center text-sm text-slate-400">Одоогоор бүртгэл алга</div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-h-[1320px] overflow-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">

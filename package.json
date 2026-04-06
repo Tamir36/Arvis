@@ -17,6 +17,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:purge-business": "node scripts/purge-business-data.mjs --force",
     "db:purge-app-data": "node scripts/purge-business-data.mjs --force",
+    "db:backfill-driver-reservations": "node scripts/backfill-driver-reservations.mjs",
     "db:studio": "prisma studio"
   },
   "dependencies": {

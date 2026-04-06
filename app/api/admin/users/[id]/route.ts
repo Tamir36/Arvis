@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 interface Params {
@@ -15,6 +16,8 @@ const updateUserSchema = z.object({
     .max(40)
     .regex(/^[a-zA-Z0-9._-]+$/, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, ., _, - зөвшөөрнө"),
   role: z.enum(["ADMIN", "DRIVER", "OPERATOR"]),
+  isActive: z.boolean(),
+  password: z.string().min(4).max(100).optional(),
 });
 
 async function ensureAdmin() {
@@ -49,7 +52,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true },
+      select: { id: true, role: true, isActive: true },
     });
 
     if (!target) {
@@ -58,11 +61,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const username = parsed.data.username.trim();
     const role = parsed.data.role;
+    const isActive = parsed.data.isActive;
+    const nextPassword = typeof parsed.data.password === "string" ? parsed.data.password.trim() : "";
+    const generatedEmail = `${username.toLowerCase()}@local.arvis`;
 
     const duplicate = await prisma.user.findFirst({
       where: {
         id: { not: id },
-        name: username,
+        OR: [
+          { name: username },
+          { email: generatedEmail },
+        ],
       },
       select: { id: true },
     });
@@ -71,19 +80,44 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       return NextResponse.json({ error: "Нэвтрэх нэр давхардсан байна" }, { status: 409 });
     }
 
-    if (target.role === "ADMIN" && role !== "ADMIN") {
+    const isRemovingAdminRole = target.role === "ADMIN" && role !== "ADMIN";
+    const isDeactivatingAdmin = target.role === "ADMIN" && target.isActive && !isActive;
+
+    if (isRemovingAdminRole || isDeactivatingAdmin) {
       const adminCount = await prisma.user.count({ where: { role: "ADMIN", isActive: true } });
       if (adminCount <= 1) {
-        return NextResponse.json({ error: "Сүүлийн админы эрхийг өөрчлөх боломжгүй" }, { status: 400 });
+        return NextResponse.json({ error: "Сүүлийн идэвхтэй админыг идэвхгүй болгох эсвэл эрхийг солих боломжгүй" }, { status: 400 });
       }
+    }
+
+    if (id === adminCheck.session!.user.id && !isActive) {
+      return NextResponse.json({ error: "Өөрийгөө идэвхгүй болгох боломжгүй" }, { status: 400 });
+    }
+
+    const updateData: {
+      name: string;
+      email: string;
+      role: "ADMIN" | "DRIVER" | "OPERATOR";
+      isActive: boolean;
+      password?: string;
+    } = {
+      name: username,
+      email: generatedEmail,
+      role,
+      isActive,
+    };
+
+    if (nextPassword) {
+      updateData.password = await bcrypt.hash(nextPassword, 10);
     }
 
     const updated = await prisma.user.update({
       where: { id },
-      data: { name: username, role },
+      data: updateData,
       select: {
         id: true,
         name: true,
+        email: true,
         role: true,
         isActive: true,
         createdAt: true,

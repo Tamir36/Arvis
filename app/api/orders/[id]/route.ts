@@ -7,6 +7,9 @@ interface Params {
   id: string;
 }
 
+const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "RETURNED", "SHIPPED", "DELIVERED"]);
+const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "RETURNED"] as const;
+
 async function ensureDriverHasStock(
   driverId: string,
   items: Array<{ productId: string; qty: number; name: string }>,
@@ -40,11 +43,49 @@ async function ensureDriverHasStock(
   });
 
   const stockByProduct = new Map(stocks.map((stock) => [stock.productId, stock.quantity]));
-  const insufficient = requiredEntries.filter((entry) => (stockByProduct.get(entry.productId) ?? 0) < entry.qty);
+  const reservedItems = await prisma.orderItem.findMany({
+    where: {
+      productId: { in: requiredEntries.map((entry) => entry.productId) },
+      order: {
+        assignedToId: driverId,
+        status: { in: [...DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES] },
+      },
+    },
+    select: {
+      productId: true,
+      qty: true,
+    },
+  });
 
-  if (insufficient.length > 0) {
-    const labels = insufficient.map((entry) => entry.name).join(", ");
-    throw new Error(`DRIVER_STOCK_INSUFFICIENT:${labels}`);
+  const reservedByProduct = new Map<string, number>();
+  for (const item of reservedItems) {
+    reservedByProduct.set(item.productId, (reservedByProduct.get(item.productId) ?? 0) + Number(item.qty ?? 0));
+  }
+
+  const outOfStockProducts: string[] = [];
+  const exceededProducts: string[] = [];
+
+  for (const entry of requiredEntries) {
+    const availableQty = stockByProduct.get(entry.productId) ?? 0;
+    const reservedQty = reservedByProduct.get(entry.productId) ?? 0;
+    const totalQty = availableQty + reservedQty;
+
+    if (totalQty <= 0) {
+      outOfStockProducts.push(entry.name);
+      continue;
+    }
+
+    if (availableQty < entry.qty) {
+      exceededProducts.push(entry.name);
+    }
+  }
+
+  if (outOfStockProducts.length > 0) {
+    throw new Error(`DRIVER_STOCK_OUT:${outOfStockProducts.join(", ")}`);
+  }
+
+  if (exceededProducts.length > 0) {
+    throw new Error(`DRIVER_STOCK_EXCEEDED:${exceededProducts.join(", ")}`);
   }
 }
 
@@ -499,43 +540,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       }
     }
 
-    const isBecomingDelivered =
-      nextStatus === "DELIVERED" && String(order.status) !== "DELIVERED";
-    const isLeavingDelivered =
-      String(order.status) === "DELIVERED" && nextStatus !== "DELIVERED";
-    const hasPriorDeliveredStockDeduction = order.auditLogs.length > 0;
-    const shouldRestoreStockOnLeavingDelivered = isLeavingDelivered && hasPriorDeliveredStockDeduction;
-    const isDeliveredDriverReassignment =
-      String(order.status) === "DELIVERED"
-      && nextStatus === "DELIVERED"
-      && didChangeDriver
-      && order.assignedToId !== targetDriverId;
-    const isDeliveredItemsChangedWithSameDriver =
-      String(order.status) === "DELIVERED"
-      && nextStatus === "DELIVERED"
-      && didChangeItems
-      && !didChangeDriver
-      && Boolean(targetDriverId)
-      && targetDriverId === order.assignedToId;
-    const deliveredPositiveDelta = isDeliveredItemsChangedWithSameDriver
-      ? buildPositiveStockDelta(
-          order.items.map((item) => ({
-            productId: item.productId,
-            qty: Number(item.qty),
-            name: item.name,
-          })),
-          nextItemsForStockValidation,
-        )
+    const currentItemsForStock = order.items.map((item) => ({
+      productId: item.productId,
+      qty: Number(item.qty),
+      name: item.name,
+    }));
+
+    const oldDriverId = order.assignedToId;
+    const oldDriverName = order.assignedTo?.name ?? null;
+    const wasDriverReserved = Boolean(oldDriverId) && DRIVER_RESERVED_STATUSES.has(String(order.status));
+    const willDriverReserved = Boolean(targetDriverId) && DRIVER_RESERVED_STATUSES.has(String(nextStatus));
+
+    const isDriverReassignmentWhileReserved =
+      wasDriverReserved
+      && willDriverReserved
+      && oldDriverId !== targetDriverId;
+
+    const reserveDeltaOnSameDriver =
+      wasDriverReserved
+      && willDriverReserved
+      && oldDriverId === targetDriverId
+      ? buildPositiveStockDelta(currentItemsForStock, nextItemsForStockValidation)
       : [];
-    const deliveredRestoreDelta = isDeliveredItemsChangedWithSameDriver
-      ? buildPositiveStockDelta(
-          nextItemsForStockValidation,
-          order.items.map((item) => ({
-            productId: item.productId,
-            qty: Number(item.qty),
-            name: item.name,
-          })),
-        )
+
+    const restoreDeltaOnSameDriver =
+      wasDriverReserved
+      && willDriverReserved
+      && oldDriverId === targetDriverId
+      ? buildPositiveStockDelta(nextItemsForStockValidation, currentItemsForStock)
       : [];
 
     if (nextStatus !== order.status) {
@@ -548,42 +580,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       });
     }
 
-    const shouldCheckDriverStock =
-      ["PENDING", "CONFIRMED", "SHIPPED"].includes(String(nextStatus))
-      && (didChangeDriver || didChangeItems)
-      && !(String(order.status) === "DELIVERED" && targetDriverId === order.assignedToId);
-
-    if (targetDriverId && shouldCheckDriverStock) {
-      const itemsForStockCheck = (
-        didChangeItems
-        && !didChangeDriver
-        && targetDriverId === order.assignedToId
-      )
-        ? buildPositiveStockDelta(
-            order.items.map((item) => ({
-              productId: item.productId,
-              qty: Number(item.qty),
-              name: item.name,
-            })),
-            nextItemsForStockValidation,
-          )
-        : nextItemsForStockValidation;
-
-      if (itemsForStockCheck.length > 0) {
-        await ensureDriverHasStock(targetDriverId, itemsForStockCheck);
+    if (willDriverReserved && targetDriverId) {
+      if (isDriverReassignmentWhileReserved || !wasDriverReserved) {
+        await ensureDriverHasStock(targetDriverId, nextItemsForStockValidation);
+      } else if (reserveDeltaOnSameDriver.length > 0) {
+        await ensureDriverHasStock(targetDriverId, reserveDeltaOnSameDriver);
       }
     }
 
-    if (targetDriverId && deliveredPositiveDelta.length > 0) {
-      await ensureDriverHasStock(targetDriverId, deliveredPositiveDelta);
-    }
-
-    if (isDeliveredDriverReassignment && targetDriverId) {
-      // Driver changed while order remains DELIVERED: stock must move to the new driver.
-      await ensureDriverHasStock(targetDriverId, nextItemsForStockValidation);
-    }
-
-    if (isBecomingDelivered) {
+    if (!wasDriverReserved && willDriverReserved && targetDriverId) {
       auditChanges.push({
         userId: session.user.id,
         action: "DRIVER_STOCK_DEDUCTED",
@@ -591,58 +596,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         newValue: buildStockAuditPayload(nextItemsForStockValidation, {
           driverId: targetDriverId,
           driverName: targetDriverName,
-          reason: "delivered",
+          reason: nextStatus === "DELIVERED" ? "delivered" : "reserved",
         }),
       });
     }
 
-    if (targetDriverId && deliveredPositiveDelta.length > 0) {
-      auditChanges.push({
-        userId: session.user.id,
-        action: "DRIVER_STOCK_DEDUCTED",
-        oldValue: null,
-        newValue: buildStockAuditPayload(deliveredPositiveDelta, {
-          driverId: targetDriverId,
-          driverName: targetDriverName,
-          reason: "delivered_items_changed",
-        }),
-      });
-    }
-
-    if (targetDriverId && deliveredRestoreDelta.length > 0) {
+    if (wasDriverReserved && !willDriverReserved && oldDriverId) {
       auditChanges.push({
         userId: session.user.id,
         action: "DRIVER_STOCK_RESTORED",
         oldValue: null,
-        newValue: buildStockAuditPayload(deliveredRestoreDelta, {
-          driverId: targetDriverId,
-          driverName: targetDriverName,
-          reason: "delivered_items_changed",
+        newValue: buildStockAuditPayload(currentItemsForStock, {
+          driverId: oldDriverId,
+          driverName: oldDriverName,
+          reason: nextStatus === "CANCELLED" ? "cancelled" : "released",
         }),
       });
     }
 
-    if (shouldRestoreStockOnLeavingDelivered) {
+    if (isDriverReassignmentWhileReserved && oldDriverId && targetDriverId) {
       auditChanges.push({
         userId: session.user.id,
         action: "DRIVER_STOCK_RESTORED",
         oldValue: null,
-        newValue: buildStockAuditPayload(nextItemsForStockValidation, {
-          driverId: order.assignedToId,
-          driverName: order.assignedTo?.name ?? null,
-          reason: nextStatus === "CANCELLED" ? "cancelled" : "restored",
-        }),
-      });
-    }
-
-    if (isDeliveredDriverReassignment) {
-      auditChanges.push({
-        userId: session.user.id,
-        action: "DRIVER_STOCK_RESTORED",
-        oldValue: null,
-        newValue: buildStockAuditPayload(nextItemsForStockValidation, {
-          driverId: order.assignedToId,
-          driverName: order.assignedTo?.name ?? null,
+        newValue: buildStockAuditPayload(currentItemsForStock, {
+          driverId: oldDriverId,
+          driverName: oldDriverName,
           reason: "driver_reassigned",
         }),
       });
@@ -657,6 +636,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           reason: "driver_reassigned",
         }),
       });
+    }
+
+    if (wasDriverReserved && willDriverReserved && oldDriverId === targetDriverId && targetDriverId) {
+      if (reserveDeltaOnSameDriver.length > 0) {
+        auditChanges.push({
+          userId: session.user.id,
+          action: "DRIVER_STOCK_DEDUCTED",
+          oldValue: null,
+          newValue: buildStockAuditPayload(reserveDeltaOnSameDriver, {
+            driverId: targetDriverId,
+            driverName: targetDriverName,
+            reason: "reserved_items_changed",
+          }),
+        });
+      }
+
+      if (restoreDeltaOnSameDriver.length > 0) {
+        auditChanges.push({
+          userId: session.user.id,
+          action: "DRIVER_STOCK_RESTORED",
+          oldValue: null,
+          newValue: buildStockAuditPayload(restoreDeltaOnSameDriver, {
+            driverId: targetDriverId,
+            driverName: targetDriverName,
+            reason: "reserved_items_changed",
+          }),
+        });
+      }
     }
 
     if (auditChanges.length === 0) {
@@ -717,7 +724,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         }
       }
 
-      if (isBecomingDelivered) {
+      if (!wasDriverReserved && willDriverReserved && targetDriverId) {
         const requiredByProduct = new Map<string, { qty: number; name: string }>();
         for (const item of nextItemsForStockValidation) {
           const previous = requiredByProduct.get(item.productId);
@@ -727,34 +734,109 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           });
         }
 
-        if (targetDriverId) {
-          // Deduct from assigned driver's stock
-          for (const [productId, required] of Array.from(requiredByProduct.entries())) {
-            const updateResult = await tx.driverStock.updateMany({
-              where: {
-                driverId: targetDriverId,
-                productId,
-                quantity: { gte: required.qty },
-              },
-              data: { quantity: { decrement: required.qty } },
-            });
-            if (updateResult.count === 0) {
-              throw new Error(`INSUFFICIENT_DRIVER_STOCK:${required.name}`);
-            }
-          }
-        } else {
-          // No driver assigned: deduct from warehouse inventory
-          for (const [productId, required] of Array.from(requiredByProduct.entries())) {
-            await tx.inventory.updateMany({
-              where: { productId },
-              data: { quantity: { decrement: required.qty } },
-            });
+        for (const [productId, required] of Array.from(requiredByProduct.entries())) {
+          const updateResult = await tx.driverStock.updateMany({
+            where: {
+              driverId: targetDriverId,
+              productId,
+              quantity: { gte: required.qty },
+            },
+            data: { quantity: { decrement: required.qty } },
+          });
+          if (updateResult.count === 0) {
+            throw new Error(`INSUFFICIENT_DRIVER_STOCK:${required.name}`);
           }
         }
       }
 
-      if (targetDriverId && deliveredPositiveDelta.length > 0) {
-        for (const item of deliveredPositiveDelta) {
+      if (wasDriverReserved && !willDriverReserved && oldDriverId) {
+        const restoredByProduct = new Map<string, { qty: number; name: string }>();
+        for (const item of currentItemsForStock) {
+          const previous = restoredByProduct.get(item.productId);
+          restoredByProduct.set(item.productId, {
+            qty: (previous?.qty ?? 0) + item.qty,
+            name: item.name,
+          });
+        }
+
+        for (const [productId, restored] of Array.from(restoredByProduct.entries())) {
+          await tx.driverStock.upsert({
+            where: {
+              driverId_productId: {
+                driverId: oldDriverId,
+                productId,
+              },
+            },
+            update: {
+              quantity: { increment: restored.qty },
+            },
+            create: {
+              driverId: oldDriverId,
+              productId,
+              quantity: restored.qty,
+            },
+          });
+        }
+      }
+
+      if (isDriverReassignmentWhileReserved && oldDriverId && targetDriverId) {
+        const oldDriverRestore = new Map<string, { qty: number; name: string }>();
+        for (const item of currentItemsForStock) {
+          const previous = oldDriverRestore.get(item.productId);
+          oldDriverRestore.set(item.productId, {
+            qty: (previous?.qty ?? 0) + item.qty,
+            name: item.name,
+          });
+        }
+
+        for (const [productId, restored] of Array.from(oldDriverRestore.entries())) {
+          await tx.driverStock.upsert({
+            where: {
+              driverId_productId: {
+                driverId: oldDriverId,
+                productId,
+              },
+            },
+            update: {
+              quantity: { increment: restored.qty },
+            },
+            create: {
+              driverId: oldDriverId,
+              productId,
+              quantity: restored.qty,
+            },
+          });
+        }
+
+        const newDriverDeduction = new Map<string, { qty: number; name: string }>();
+        for (const item of nextItemsForStockValidation) {
+          const previous = newDriverDeduction.get(item.productId);
+          newDriverDeduction.set(item.productId, {
+            qty: (previous?.qty ?? 0) + item.qty,
+            name: item.name,
+          });
+        }
+
+        for (const [productId, required] of Array.from(newDriverDeduction.entries())) {
+          const updateResult = await tx.driverStock.updateMany({
+            where: {
+              driverId: targetDriverId,
+              productId,
+              quantity: { gte: required.qty },
+            },
+            data: {
+              quantity: { decrement: required.qty },
+            },
+          });
+
+          if (updateResult.count === 0) {
+            throw new Error(`INSUFFICIENT_DRIVER_STOCK:${required.name}`);
+          }
+        }
+      }
+
+      if (wasDriverReserved && willDriverReserved && oldDriverId === targetDriverId && targetDriverId) {
+        for (const item of reserveDeltaOnSameDriver) {
           const updateResult = await tx.driverStock.updateMany({
             where: {
               driverId: targetDriverId,
@@ -770,10 +852,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
             throw new Error(`INSUFFICIENT_DRIVER_STOCK:${item.name}`);
           }
         }
-      }
 
-      if (targetDriverId && deliveredRestoreDelta.length > 0) {
-        for (const item of deliveredRestoreDelta) {
+        for (const item of restoreDeltaOnSameDriver) {
           await tx.driverStock.upsert({
             where: {
               driverId_productId: {
@@ -790,100 +870,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
               quantity: item.qty,
             },
           });
-        }
-      }
-
-      if (shouldRestoreStockOnLeavingDelivered) {
-        const restoredByProduct = new Map<string, { qty: number; name: string }>();
-        for (const item of nextItemsForStockValidation) {
-          const previous = restoredByProduct.get(item.productId);
-          restoredByProduct.set(item.productId, {
-            qty: (previous?.qty ?? 0) + item.qty,
-            name: item.name,
-          });
-        }
-
-        if (order.assignedToId) {
-          // Restore back to the original assigned driver's stock that was deducted on delivery.
-          for (const [productId, restored] of Array.from(restoredByProduct.entries())) {
-            await tx.driverStock.upsert({
-              where: {
-                driverId_productId: {
-                  driverId: order.assignedToId,
-                  productId,
-                },
-              },
-              update: {
-                quantity: { increment: restored.qty },
-              },
-              create: {
-                driverId: order.assignedToId,
-                productId,
-                quantity: restored.qty,
-              },
-            });
-          }
-        } else {
-          // If delivery was deducted from warehouse stock, restore back to warehouse.
-          for (const [productId, restored] of Array.from(restoredByProduct.entries())) {
-            await tx.inventory.updateMany({
-              where: { productId },
-              data: { quantity: { increment: restored.qty } },
-            });
-          }
-        }
-      }
-
-      if (isDeliveredDriverReassignment) {
-        const movedByProduct = new Map<string, { qty: number; name: string }>();
-        for (const item of nextItemsForStockValidation) {
-          const previous = movedByProduct.get(item.productId);
-          movedByProduct.set(item.productId, {
-            qty: (previous?.qty ?? 0) + item.qty,
-            name: item.name,
-          });
-        }
-
-        if (order.assignedToId) {
-          // Return deducted stock to the old driver.
-          for (const [productId, moved] of Array.from(movedByProduct.entries())) {
-            await tx.driverStock.upsert({
-              where: {
-                driverId_productId: {
-                  driverId: order.assignedToId,
-                  productId,
-                },
-              },
-              update: {
-                quantity: { increment: moved.qty },
-              },
-              create: {
-                driverId: order.assignedToId,
-                productId,
-                quantity: moved.qty,
-              },
-            });
-          }
-        }
-
-        if (targetDriverId) {
-          // Deduct the same stock from the newly assigned driver.
-          for (const [productId, moved] of Array.from(movedByProduct.entries())) {
-            const updateResult = await tx.driverStock.updateMany({
-              where: {
-                driverId: targetDriverId,
-                productId,
-                quantity: { gte: moved.qty },
-              },
-              data: {
-                quantity: { decrement: moved.qty },
-              },
-            });
-
-            if (updateResult.count === 0) {
-              throw new Error(`INSUFFICIENT_DRIVER_STOCK:${moved.name}`);
-            }
-          }
         }
       }
 
@@ -947,9 +933,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     return NextResponse.json(updated);
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("DRIVER_STOCK_INSUFFICIENT:")) {
+    if (err instanceof Error && err.message.startsWith("DRIVER_STOCK_OUT:")) {
       const itemNames = err.message.split(":").slice(1).join(":") || "Сонгосон бараа";
-      return NextResponse.json({ error: `${itemNames} бараа дууссан байна` }, { status: 400 });
+      return NextResponse.json({ error: `${itemNames} - бараа дууссан байна` }, { status: 400 });
+    }
+
+    if (err instanceof Error && err.message.startsWith("DRIVER_STOCK_EXCEEDED:")) {
+      return NextResponse.json({ error: "Жолоочийн үлдэгдэлээс хэтэрсэн байна" }, { status: 400 });
     }
 
     if (err instanceof Error && err.message.startsWith("INSUFFICIENT_DRIVER_STOCK:")) {

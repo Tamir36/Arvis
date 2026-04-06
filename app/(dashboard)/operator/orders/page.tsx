@@ -423,6 +423,26 @@ function parseMoneyNumber(value: string | number): number {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+function showOrderErrorToast(error: unknown) {
+  const message = error instanceof Error ? error.message : "Алдаа гарлаа";
+
+  if (message.includes("Жолоочийн үлдэгдэлээс хэтэрсэн байна")) {
+    toast.custom((t) => (
+      <div
+        className={`max-w-md rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900 shadow-lg transition-all ${t.visible ? "animate-enter" : "animate-leave"}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-yellow-300 text-yellow-900 font-bold">x</span>
+          <span className="font-medium text-amber-900">{message}</span>
+        </div>
+      </div>
+    ));
+    return;
+  }
+
+  toast.error(message);
+}
+
 function useDebouncedValue<T>(value: T, delayMs = 350): T {
   const [debounced, setDebounced] = useState(value);
 
@@ -873,7 +893,7 @@ export default function OperatorOrdersPage() {
       setNewOrderStatus("");
       setNote("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Алдаа гарлаа");
+      showOrderErrorToast(error);
     } finally {
       setIsSubmitting(false);
     }
@@ -916,7 +936,7 @@ export default function OperatorOrdersPage() {
       delete detailsCacheRef.current[orderId];
       toast.success("Төлөв шинэчлэгдлээ");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Алдаа гарлаа");
+      showOrderErrorToast(error);
     } finally {
       setSavingRowId(null);
     }
@@ -957,7 +977,7 @@ export default function OperatorOrdersPage() {
       delete detailsCacheRef.current[orderId];
       toast.success("Төлөв шинэчлэгдлээ");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Алдаа гарлаа");
+      showOrderErrorToast(error);
     } finally {
       setSavingRowId(null);
     }
@@ -1244,7 +1264,7 @@ export default function OperatorOrdersPage() {
       upsertOrderRow(json);
       delete detailsCacheRef.current[openDetails.id];
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Алдаа гарлаа");
+      showOrderErrorToast(error);
     } finally {
       setIsDetailSaving(false);
     }
@@ -1303,7 +1323,7 @@ export default function OperatorOrdersPage() {
       toast.success("Захиалга шинэчлэгдлээ");
       handleCloseDetails();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Алдаа гарлаа");
+      showOrderErrorToast(error);
     } finally {
       setIsDetailSaving(false);
     }
@@ -1392,18 +1412,18 @@ export default function OperatorOrdersPage() {
               <h2 className="text-sm font-semibold text-slate-700">Захиалга бүртгэх</h2>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-[1080px] w-full table-fixed text-sm">
+              <table className="min-w-[1360px] w-full table-fixed text-sm">
                 <colgroup>
-                  <col className="w-[95px]" />
-                  <col className="w-[125px]" />
-                  <col className="w-[360px]" />
-                  <col className="w-[150px]" />
-                  <col className="w-[95px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[130px]" />
-                  <col className="w-[135px]" />
-                  <col className="w-[140px]" />
-                  <col className="w-[120px]" />
+                  <col className="w-[82px]" />
+                  <col className="w-[94px]" />
+                  <col className="w-[250px]" />
+                  <col className="w-[270px]" />
+                  <col className="w-[72px]" />
+                  <col className="w-[106px]" />
+                  <col className="w-[126px]" />
+                  <col className="w-[128px]" />
+                  <col className="w-[164px]" />
+                  <col className="w-[84px]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
@@ -1416,7 +1436,7 @@ export default function OperatorOrdersPage() {
                     <th className="px-2 py-2 text-left">Жолооч</th>
                     <th className="px-2 py-2 text-left">Төлөв</th>
                     <th className="px-2 py-2 text-left">Тайлбар</th>
-                    <th className="px-2 py-2 text-center">Үйлдэл</th>
+                    <th className="px-2 py-2 text-center"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1427,7 +1447,7 @@ export default function OperatorOrdersPage() {
                         value={customerPhone}
                         onChange={(e) => setCustomerPhone(e.target.value)}
                         placeholder="Дугаар"
-                        className={INPUT_CLASS}
+                        className={`${INPUT_CLASS} !w-[10ch] px-1.5`}
                       />
                     </td>
                     <td className="px-2 py-1.5 align-top">
@@ -1462,7 +1482,7 @@ export default function OperatorOrdersPage() {
                             />
 
                             {activeRegistrationProductId === item.id && (
-                              <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                              <div className="relative z-30 mt-1 w-full min-h-[108px] max-h-[132px] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
                                 {products
                                   .filter((product) => {
                                     const query = (registrationProductQueries[item.id] ?? "").trim().toLowerCase();
@@ -1478,7 +1498,7 @@ export default function OperatorOrdersPage() {
                                         event.preventDefault();
                                         handleSelectRegistrationProduct(item.id, product);
                                       }}
-                                      className="block w-full truncate px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-blue-50"
+                                      className="block w-full whitespace-normal break-words px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-blue-50"
                                     >
                                       {product.name}
                                     </button>
@@ -1576,6 +1596,7 @@ export default function OperatorOrdersPage() {
                         size="sm"
                         isLoading={isSubmitting}
                         onClick={handleCreateOrder}
+                        className="rounded-full bg-green-600 px-4 text-white hover:bg-green-700 focus:ring-green-500"
                       >
                         Хадгалах
                       </Button>
@@ -1623,7 +1644,6 @@ export default function OperatorOrdersPage() {
                 <col className="w-[130px]" />
                 <col className="w-[135px]" />
                 <col className="w-[140px]" />
-                <col className="w-[130px]" />
                 <col className="w-[120px]" />
               </colgroup>
               <thead>
@@ -1664,7 +1684,7 @@ export default function OperatorOrdersPage() {
                       </button>
 
                       {isProductDropdownOpen && (
-                        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] max-h-[220px] overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
                           {products.map((product) => {
                             const isSelected = registeredProductFilter.includes(product.id);
                             return (
@@ -1762,7 +1782,6 @@ export default function OperatorOrdersPage() {
                     </div>
                   </th>
                   <th className="px-2 py-2 text-left">Тайлбар</th>
-                  <th className="px-2 py-2 text-left">Ажилтан</th>
                   <th className="px-2 py-2 text-center">
                     <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
                       Цэвэрлэх
@@ -1773,11 +1792,11 @@ export default function OperatorOrdersPage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400">Ачааллаж байна...</td>
+                    <td colSpan={11} className="px-3 py-10 text-center text-slate-400">Ачааллаж байна...</td>
                   </tr>
                 ) : filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400">Сонгосон ангилалд захиалга алга</td>
+                    <td colSpan={11} className="px-3 py-10 text-center text-slate-400">Сонгосон ангилалд захиалга алга</td>
                   </tr>
                 ) : (
                   filteredOrders.map((order, index) => {
@@ -1787,10 +1806,6 @@ export default function OperatorOrdersPage() {
                       ? order.items.map((item) => `- ${item.product.name} x${item.qty}`).join("\n")
                       : "-";
                     const nextStatus = pendingStatuses[order.id] ?? order.status;
-                    const operatorUser = order.auditLogs[0]?.user;
-                    const operatorText = String(operatorUser?.role ?? "").toUpperCase() === "ADMIN"
-                      ? "Админ"
-                      : (operatorUser?.name ?? "-");
                     const carryoverDisplayDate = normalizedFilterToDate || normalizedFilterFromDate || getTodayLocal();
                     const orderDisplayDate = order.delivery?.timeSlot?.date
                       ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
@@ -1851,7 +1866,6 @@ export default function OperatorOrdersPage() {
                           </select>
                         </td>
                         <td className="px-2 py-1.5 align-top text-slate-600 text-xs whitespace-pre-wrap break-words">{order.notes || "-"}</td>
-                        <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{operatorText}</td>
                         <td className="px-2 py-1.5">
                           <div className="flex items-center justify-center gap-1">
                             <button

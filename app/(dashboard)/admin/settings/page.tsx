@@ -12,6 +12,7 @@ type UserRole = "ADMIN" | "DRIVER" | "OPERATOR";
 interface UserItem {
   id: string;
   name: string;
+  email: string;
   role: UserRole;
   isActive: boolean;
   createdAt: string;
@@ -20,12 +21,15 @@ interface UserItem {
 interface EditState {
   username: string;
   role: UserRole;
+  isActive: boolean;
+  password: string;
 }
 
 export default function SettingsPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("OPERATOR");
+  const [isActive, setIsActive] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
@@ -69,7 +73,7 @@ export default function SettingsPage() {
 
   const startEdit = (user: UserItem) => {
     setEditingUserId(user.id);
-    setEditState({ username: user.name, role: user.role });
+    setEditState({ username: user.name, role: user.role, isActive: user.isActive, password: "" });
   };
 
   const cancelEdit = () => {
@@ -93,7 +97,12 @@ export default function SettingsPage() {
       const response = await fetch(`/api/admin/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: trimmedUsername, role: editState.role }),
+        body: JSON.stringify({
+          username: trimmedUsername,
+          role: editState.role,
+          isActive: editState.isActive,
+          password: editState.password.trim() || undefined,
+        }),
       });
 
       const data = await response.json();
@@ -159,7 +168,7 @@ export default function SettingsPage() {
       const response = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: trimmedUsername, password, role }),
+        body: JSON.stringify({ username: trimmedUsername, password, role, isActive }),
       });
 
       const data = await response.json();
@@ -173,6 +182,7 @@ export default function SettingsPage() {
       setUsername("");
       setPassword("");
       setRole("OPERATOR");
+      setIsActive(true);
       await loadUsers();
     } catch {
       setCreateError("Сүлжээний алдаа гарлаа");
@@ -228,6 +238,21 @@ export default function SettingsPage() {
               required
             />
 
+            <div className="space-y-1.5">
+              <label htmlFor="new-user-active" className="block text-sm font-medium text-slate-700">
+                Төлөв
+              </label>
+              <select
+                id="new-user-active"
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={isActive ? "ACTIVE" : "INACTIVE"}
+                onChange={(event) => setIsActive(event.target.value === "ACTIVE")}
+              >
+                <option value="ACTIVE">Идэвхтэй</option>
+                <option value="INACTIVE">Идэвхгүй</option>
+              </select>
+            </div>
+
             {createError && (
               <div className="p-3 rounded-xl border border-red-200 bg-red-50 text-sm text-red-700">
                 {createError}
@@ -274,7 +299,9 @@ export default function SettingsPage() {
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
                     <th className="py-2 pr-3 font-medium">Нэвтрэх нэр</th>
+                    <th className="py-2 pr-3 font-medium">Нууц үг</th>
                     <th className="py-2 pr-3 font-medium">Эрх</th>
+                    <th className="py-2 pr-3 font-medium">Төлөв</th>
                     <th className="py-2 pr-3 font-medium">Үүсгэсэн</th>
                     <th className="py-2 text-right font-medium">Үйлдэл</th>
                   </tr>
@@ -303,6 +330,23 @@ export default function SettingsPage() {
                         </td>
                         <td className="py-2 pr-3">
                           {isEditing ? (
+                            <input
+                              type="password"
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editState.password}
+                              onChange={(event) =>
+                                setEditState((prev) =>
+                                  prev ? { ...prev, password: event.target.value } : prev
+                                )
+                              }
+                              placeholder="Шинэ нууц үг (хоосон бол өөрчлөхгүй)"
+                            />
+                          ) : (
+                            <span className="text-slate-400">••••••••</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {isEditing ? (
                             <select
                               className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                               value={editState.role}
@@ -318,6 +362,26 @@ export default function SettingsPage() {
                             </select>
                           ) : (
                             <span className="text-slate-700">{roleLabel[user.role]}</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {isEditing ? (
+                            <select
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editState.isActive ? "ACTIVE" : "INACTIVE"}
+                              onChange={(event) =>
+                                setEditState((prev) =>
+                                  prev ? { ...prev, isActive: event.target.value === "ACTIVE" } : prev
+                                )
+                              }
+                            >
+                              <option value="ACTIVE">Идэвхтэй</option>
+                              <option value="INACTIVE">Идэвхгүй</option>
+                            </select>
+                          ) : (
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${user.isActive ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-600"}`}>
+                              {user.isActive ? "Идэвхтэй" : "Идэвхгүй"}
+                            </span>
                           )}
                         </td>
                         <td className="py-2 pr-3 text-slate-500">

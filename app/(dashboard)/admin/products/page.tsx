@@ -19,6 +19,8 @@ const STATUS_OPTIONS = [
   { value: "DRAFT", label: "Идэвхгүй" },
 ];
 
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100] as const;
+
 interface Product {
   id: string;
   name: string;
@@ -35,11 +37,10 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(10);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-
-  const pageSize = 10;
 
   const fetchProducts = useCallback(async () => {
     setIsLoading(true);
@@ -60,7 +61,7 @@ export default function ProductsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [page, search, status]);
+  }, [page, pageSize, search, status]);
 
   useEffect(() => {
     fetchProducts();
@@ -201,6 +202,11 @@ export default function ProductsPage() {
                   total={total}
                   pageSize={pageSize}
                   onPageChange={setPage}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
                 />
               </div>
             </>

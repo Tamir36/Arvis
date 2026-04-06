@@ -11,7 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [drivers, products, driverStocks, deliveredItems] = await Promise.all([
+  const [drivers, products, driverStocks, deliveredItems, reservedItems] = await Promise.all([
     prisma.user.findMany({
       where: { role: "DRIVER", isActive: true },
       select: { id: true, name: true },
@@ -21,6 +21,7 @@ export async function GET() {
       select: {
         id: true,
         name: true,
+        status: true,
         category: { select: { name: true } },
         images: {
           select: { url: true, isPrimary: true },
@@ -38,6 +39,23 @@ export async function GET() {
       where: { order: { status: "DELIVERED" } },
       select: { productId: true, qty: true },
     }),
+    prisma.orderItem.findMany({
+      where: {
+        order: {
+          assignedToId: { not: null },
+          status: { in: ["CONFIRMED", "RETURNED"] },
+        },
+      },
+      select: {
+        productId: true,
+        qty: true,
+        order: {
+          select: {
+            assignedToId: true,
+          },
+        },
+      },
+    }),
   ]);
 
   // Build lookup maps
@@ -52,18 +70,31 @@ export async function GET() {
     driverStockMap[ds.productId][ds.driverId] = ds.quantity;
   }
 
+  const driverReservedMap: Record<string, Record<string, number>> = {};
+  for (const item of reservedItems) {
+    const driverId = item.order.assignedToId;
+    if (!driverId) continue;
+    if (!driverReservedMap[item.productId]) driverReservedMap[item.productId] = {};
+    driverReservedMap[item.productId][driverId] = (driverReservedMap[item.productId][driverId] ?? 0) + item.qty;
+  }
+
   const rows = products.map((p) => {
     const driverBreakdown: Record<string, number> = Object.fromEntries(
       drivers.map((d) => [d.id, driverStockMap[p.id]?.[d.id] ?? 0])
     );
     const totalDriverQty = Object.values(driverBreakdown).reduce((a, b) => a + b, 0);
+    const driverReservedBreakdown: Record<string, number> = Object.fromEntries(
+      drivers.map((d) => [d.id, driverReservedMap[p.id]?.[d.id] ?? 0]),
+    );
     return {
       id: p.id,
       name: p.name,
+      status: p.status,
       category: p.category?.name ?? null,
       images: p.images,
       warehouseQty: p.inventory?.quantity ?? 0,
       driverBreakdown,
+      driverReservedBreakdown,
       totalDriverQty,
       totalDelivered: deliveredMap[p.id] ?? 0,
       totalRemaining: (p.inventory?.quantity ?? 0) + totalDriverQty,

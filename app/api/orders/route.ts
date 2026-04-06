@@ -16,6 +16,8 @@ const CONTACT_LABELS: Record<string, string> = {
 };
 
 const ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
+const DRIVER_RESERVED_STATUSES = ["CONFIRMED", "RETURNED", "SHIPPED", "DELIVERED"] as const;
+const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "RETURNED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
@@ -315,11 +317,49 @@ async function ensureDriverHasStock(
   });
 
   const stockByProduct = new Map(stocks.map((stock) => [stock.productId, stock.quantity]));
-  const insufficient = requiredEntries.filter((entry) => (stockByProduct.get(entry.productId) ?? 0) < entry.qty);
+  const reservedItems = await prisma.orderItem.findMany({
+    where: {
+      productId: { in: requiredEntries.map((entry) => entry.productId) },
+      order: {
+        assignedToId: driverId,
+        status: { in: [...DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES] },
+      },
+    },
+    select: {
+      productId: true,
+      qty: true,
+    },
+  });
 
-  if (insufficient.length > 0) {
-    const labels = insufficient.map((entry) => entry.name).join(", ");
-    throw new Error(`DRIVER_STOCK_INSUFFICIENT:${labels}`);
+  const reservedByProduct = new Map<string, number>();
+  for (const item of reservedItems) {
+    reservedByProduct.set(item.productId, (reservedByProduct.get(item.productId) ?? 0) + Number(item.qty ?? 0));
+  }
+
+  const outOfStockProducts: string[] = [];
+  const exceededProducts: string[] = [];
+
+  for (const entry of requiredEntries) {
+    const availableQty = stockByProduct.get(entry.productId) ?? 0;
+    const reservedQty = reservedByProduct.get(entry.productId) ?? 0;
+    const totalQty = availableQty + reservedQty;
+
+    if (totalQty <= 0) {
+      outOfStockProducts.push(entry.name);
+      continue;
+    }
+
+    if (availableQty < entry.qty) {
+      exceededProducts.push(entry.name);
+    }
+  }
+
+  if (outOfStockProducts.length > 0) {
+    throw new Error(`DRIVER_STOCK_OUT:${outOfStockProducts.join(", ")}`);
+  }
+
+  if (exceededProducts.length > 0) {
+    throw new Error(`DRIVER_STOCK_EXCEEDED:${exceededProducts.join(", ")}`);
   }
 }
 
@@ -717,7 +757,10 @@ export async function POST(req: NextRequest) {
       ? "CONFIRMED"
       : (requestedStatus || "PENDING");
 
-    if (assignedDriverId && ["PENDING", "CONFIRMED", "SHIPPED", "DELIVERED"].includes(initialStatus)) {
+    const isInitiallyDriverReserved = assignedDriverId
+      && DRIVER_RESERVED_STATUSES.includes(initialStatus as typeof DRIVER_RESERVED_STATUSES[number]);
+
+    if (isInitiallyDriverReserved) {
       await ensureDriverHasStock(
         assignedDriverId,
         computedItems.map((item) => ({
@@ -773,7 +816,7 @@ export async function POST(req: NextRequest) {
                     newValue: assignedDriver.name,
                   }]
                 : []),
-              ...(isInitiallyDelivered
+              ...(isInitiallyDriverReserved
                 ? [{
                     userId: session.user.id,
                     action: "DRIVER_STOCK_DEDUCTED",
@@ -787,7 +830,7 @@ export async function POST(req: NextRequest) {
                       {
                         driverId: assignedDriverId || null,
                         driverName: assignedDriver?.name ?? null,
-                        reason: "delivered",
+                        reason: isInitiallyDelivered ? "delivered" : "reserved_on_create",
                       },
                     ),
                   }]
@@ -860,7 +903,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      if (isInitiallyDelivered) {
+      if (isInitiallyDriverReserved || isInitiallyDelivered) {
         const requiredByProduct = new Map<string, { qty: number; name: string }>();
         for (const item of computedItems) {
           const previous = requiredByProduct.get(item.productId);
@@ -910,9 +953,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(order, { status: 201 });
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("DRIVER_STOCK_INSUFFICIENT:")) {
+    if (err instanceof Error && err.message.startsWith("DRIVER_STOCK_OUT:")) {
       const itemNames = err.message.split(":").slice(1).join(":") || "Сонгосон бараа";
-      return NextResponse.json({ error: `${itemNames} бараа дууссан байна` }, { status: 400 });
+      return NextResponse.json({ error: `${itemNames} - бараа дууссан байна` }, { status: 400 });
+    }
+
+    if (err instanceof Error && err.message.startsWith("DRIVER_STOCK_EXCEEDED:")) {
+      return NextResponse.json({ error: "Жолоочийн үлдэгдэлээс хэтэрсэн байна" }, { status: 400 });
     }
 
     if (err instanceof Error && err.message.startsWith("INSUFFICIENT_DRIVER_STOCK:")) {

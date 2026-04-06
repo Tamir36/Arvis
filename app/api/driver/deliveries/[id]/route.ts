@@ -8,7 +8,7 @@ interface Params {
 }
 
 const DRIVER_STATUS_VALUES = new Set(["DELIVERED", "LATE_DELIVERED", "RETURNED", "CANCELLED"]);
-const STOCK_DEDUCTED_STATUSES = new Set(["DELIVERED"]);
+const STOCK_RESERVED_STATUSES = new Set(["CONFIRMED", "RETURNED", "SHIPPED", "DELIVERED"]);
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
 function startOfDay(date: Date): Date {
@@ -90,13 +90,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       }
 
       const previousStatus = String(order.status);
-      const shouldDeduct = !STOCK_DEDUCTED_STATUSES.has(previousStatus) && STOCK_DEDUCTED_STATUSES.has(nextStatus);
-      // Restore stock when leaving DELIVERED state so cancellation can return quantity back.
-      const shouldRestore = STOCK_DEDUCTED_STATUSES.has(previousStatus) && !STOCK_DEDUCTED_STATUSES.has(nextStatus);
-      // Delete the DEDUCTED audit log whenever leaving DELIVERED state (CANCELLED or RETURNED).
-      const shouldDeleteDeductedLog = STOCK_DEDUCTED_STATUSES.has(previousStatus) && !STOCK_DEDUCTED_STATUSES.has(nextStatus);
-      // Keep restore log for both CANCELLED and RETURNED flows.
-      const shouldLogRestore = shouldRestore;
+      const shouldDeduct = !STOCK_RESERVED_STATUSES.has(previousStatus) && STOCK_RESERVED_STATUSES.has(nextStatus);
+      const shouldRestore = STOCK_RESERVED_STATUSES.has(previousStatus) && !STOCK_RESERVED_STATUSES.has(nextStatus);
 
       const now = new Date();
       const updateData: Prisma.OrderUpdateInput = {
@@ -172,16 +167,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         }
       }
 
-      if (shouldDeleteDeductedLog) {
-        // Remove the deduction audit log (CANCELLED = no log needed; RETURNED = will add RESTORED log below)
-        await tx.orderAuditLog.deleteMany({
-          where: {
-            orderId: order.id,
-            action: "DRIVER_STOCK_DEDUCTED",
-          },
-        });
-      }
-
       if (shouldRestore) {
         for (const item of order.items) {
           await tx.driverStock.upsert({
@@ -236,7 +221,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         });
       }
 
-      if (shouldLogRestore) {
+      if (shouldRestore) {
         auditChanges.push({
           user: { connect: { id: session.user.id } },
           action: "DRIVER_STOCK_RESTORED",
@@ -244,7 +229,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           newValue: JSON.stringify({
             driverId: session.user.id,
             driverName: order.assignedTo?.name ?? session.user.name ?? null,
-            reason: nextStatus === "CANCELLED" ? "cancelled" : "restored",
+            reason: nextStatus === "CANCELLED" ? "cancelled" : "released",
             items: order.items.map((item) => ({
               productId: item.productId,
               name: item.name,
