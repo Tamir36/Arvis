@@ -8,7 +8,7 @@ interface Params {
 }
 
 const DRIVER_STATUS_VALUES = new Set(["DELIVERED", "LATE_DELIVERED", "RETURNED", "CANCELLED"]);
-const STOCK_RESERVED_STATUSES = new Set(["CONFIRMED", "RETURNED", "SHIPPED", "DELIVERED"]);
+const STOCK_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "DELIVERED"]);
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
 function startOfDay(date: Date): Date {

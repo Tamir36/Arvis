@@ -40,6 +40,25 @@ function parseAuditItems(raw: string | null) {
   }
 }
 
+function parseStockAuditMeta(raw: string | null): { reason: string | null } {
+  if (!raw) return { reason: null };
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { reason: null };
+    }
+
+    return {
+      reason: typeof (parsed as { reason?: unknown }).reason === "string"
+        ? (parsed as { reason: string }).reason
+        : null,
+    };
+  } catch {
+    return { reason: null };
+  }
+}
+
 async function generateUniqueSlugForUpdate(name: string, productId: string): Promise<string> {
   const baseSlug = generateSlug(name) || `product-${Date.now()}`;
   let candidate = baseSlug;
@@ -147,21 +166,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<Params
       })),
       salesHistory: salesLogs
         .map((log) => {
-          if (log.action === "DRIVER_STOCK_RESTORED" && log.order.status !== "RETURNED") {
-            return null;
-          }
-
           const qty = parseAuditItems(log.newValue)
             .filter((item) => item.productId === id)
             .reduce((sum, item) => sum + item.qty, 0);
 
           if (qty <= 0) return null;
 
+          const meta = parseStockAuditMeta(log.newValue);
+
           return {
             id: log.id,
             createdAt: log.createdAt,
             action: log.action,
             quantity: qty,
+            reason: meta.reason,
             actor: log.user,
             driver: log.order.assignedTo,
             order: {
@@ -312,21 +330,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       })),
       salesHistory: salesLogs
         .map((log) => {
-          if (log.action === "DRIVER_STOCK_RESTORED" && log.order.status !== "RETURNED") {
-            return null;
-          }
-
           const qty = parseAuditItems(log.newValue)
             .filter((item) => item.productId === id)
             .reduce((sum, item) => sum + item.qty, 0);
 
           if (qty <= 0) return null;
 
+          const meta = parseStockAuditMeta(log.newValue);
+
           return {
             id: log.id,
             createdAt: log.createdAt,
             action: log.action,
             quantity: qty,
+            reason: meta.reason,
             actor: log.user,
             driver: log.order.assignedTo,
             order: {

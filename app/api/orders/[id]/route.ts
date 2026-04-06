@@ -7,8 +7,8 @@ interface Params {
   id: string;
 }
 
-const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "RETURNED", "SHIPPED", "DELIVERED"]);
-const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "RETURNED"] as const;
+const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "DELIVERED"]);
+const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED"] as const;
 
 async function ensureDriverHasStock(
   driverId: string,
