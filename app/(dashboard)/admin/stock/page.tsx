@@ -192,6 +192,7 @@ export default function StockPage() {
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700
               focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
+            <option value="ALL">Бүх статус</option>
             <option value="ACTIVE">Идэвхтэй</option>
             <option value="DRAFT">Идэвхгүй</option>
           </select>
