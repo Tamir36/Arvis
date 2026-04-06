@@ -33,7 +33,6 @@ async function loadOrdersMeta(): Promise<OrdersMetaPayload> {
         orderBy: { name: "asc" },
       }),
       prisma.product.findMany({
-        where: { status: "ACTIVE" },
         select: { id: true, name: true, basePrice: true },
         orderBy: { name: "asc" },
       }),

@@ -99,8 +99,8 @@ export default function StockPage() {
       } else if (sortConfig.key.startsWith("driver:")) {
         const driverId = sortConfig.key.slice("driver:".length);
         data.sort((a, b) => {
-          const av = a.driverBreakdown[driverId] ?? 0;
-          const bv = b.driverBreakdown[driverId] ?? 0;
+          const av = (a.driverBreakdown[driverId] ?? 0) + (a.driverReservedBreakdown[driverId] ?? 0);
+          const bv = (b.driverBreakdown[driverId] ?? 0) + (b.driverReservedBreakdown[driverId] ?? 0);
           return sortConfig.direction === "asc" ? av - bv : bv - av;
         });
       } else if (sortConfig.key === "deliveryInProgress") {
@@ -161,7 +161,9 @@ export default function StockPage() {
       base.delivered += row.totalDelivered;
 
       for (const driver of drivers) {
-        base.driverTotals[driver.id] = (base.driverTotals[driver.id] ?? 0) + (row.driverBreakdown[driver.id] ?? 0);
+        const driverCurrent = row.driverBreakdown[driver.id] ?? 0;
+        const driverReserved = row.driverReservedBreakdown[driver.id] ?? 0;
+        base.driverTotals[driver.id] = (base.driverTotals[driver.id] ?? 0) + driverCurrent + driverReserved;
       }
 
       if (selectedDriverId) {
@@ -215,9 +217,9 @@ export default function StockPage() {
               <p className="text-sm text-slate-400 mt-3">Ачааллаж байна...</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="max-h-[75vh] overflow-auto">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 z-20">
                   <tr className="bg-slate-50 border-b border-slate-100">
                     <th className="px-4 py-2 text-center text-xs font-semibold text-slate-400 uppercase w-10">#</th>
                     <th className="px-4 py-2 text-left text-xs font-semibold text-slate-400 uppercase min-w-[220px]">
@@ -358,10 +360,12 @@ export default function StockPage() {
                                 {row.warehouseQty}
                               </td>
                               {drivers.map((d) => {
-                                const qty = row.driverBreakdown[d.id] ?? 0;
+                                const currentQty = row.driverBreakdown[d.id] ?? 0;
+                                const reservedQty = row.driverReservedBreakdown[d.id] ?? 0;
+                                const totalQty = currentQty + reservedQty;
                                 return (
-                                  <td key={d.id} className={`px-4 py-1.5 text-center text-sm font-medium bg-orange-50/20 ${qtyClass(qty)}`}>
-                                    {qty}
+                                  <td key={d.id} className={`px-4 py-1.5 text-center text-sm font-medium bg-orange-50/20 ${qtyClass(totalQty)}`}>
+                                    {totalQty}
                                   </td>
                                 );
                               })}
