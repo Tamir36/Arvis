@@ -20,6 +20,7 @@ const DRIVER_RESERVED_STATUSES = ["CONFIRMED", "SHIPPED", "DELIVERED"] as const;
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
+const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
 
 let lastRolloverRunAt = 0;
 let rolloverInFlight: Promise<void> | null = null;
@@ -36,10 +37,7 @@ function startOfDay(date: Date): Date {
   const month = Number(parts.find((part) => part.type === "month")?.value ?? "1");
   const day = Number(parts.find((part) => part.type === "day")?.value ?? "1");
 
-  const utcMidnight = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-  const tzAtUtcMidnight = new Date(utcMidnight.toLocaleString("en-US", { timeZone: BUSINESS_TIME_ZONE }));
-  const offsetMs = tzAtUtcMidnight.getTime() - utcMidnight.getTime();
-  return new Date(utcMidnight.getTime() - offsetMs);
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
 }
 
 function nextDay(date: Date): Date {
@@ -437,11 +435,95 @@ export async function GET(req: NextRequest) {
         && (!dateRange.lte || dateRange.lte >= todayStart);
 
       if (dateRange.gte || dateRange.lte) {
+        const deliveredInRangeFilter: Prisma.OrderWhereInput = {
+          status: "DELIVERED",
+          OR: [
+            {
+              AND: [
+                {
+                  auditLogs: {
+                    some: {
+                      action: "STATUS_CHANGED",
+                      newValue: "DELIVERED",
+                      createdAt: dateRange,
+                    },
+                  },
+                },
+                ...(dateRange.lte
+                  ? [{
+                      auditLogs: {
+                        none: {
+                          action: "STATUS_CHANGED",
+                          newValue: "DELIVERED",
+                          createdAt: { gt: dateRange.lte },
+                        },
+                      },
+                    } as Prisma.OrderWhereInput]
+                  : []),
+              ],
+            },
+            {
+              AND: [
+                {
+                  auditLogs: {
+                    none: {
+                      action: "STATUS_CHANGED",
+                      newValue: "DELIVERED",
+                    },
+                  },
+                },
+                { updatedAt: dateRange },
+              ],
+            },
+          ],
+        };
+
+        const cancelledInRangeFilter: Prisma.OrderWhereInput = {
+          status: "CANCELLED",
+          OR: [
+            {
+              AND: [
+                {
+                  auditLogs: {
+                    some: {
+                      action: "STATUS_CHANGED",
+                      newValue: "CANCELLED",
+                      createdAt: dateRange,
+                    },
+                  },
+                },
+                ...(dateRange.lte
+                  ? [{
+                      auditLogs: {
+                        none: {
+                          action: "STATUS_CHANGED",
+                          newValue: "CANCELLED",
+                          createdAt: { gt: dateRange.lte },
+                        },
+                      },
+                    } as Prisma.OrderWhereInput]
+                  : []),
+              ],
+            },
+            {
+              AND: [
+                {
+                  auditLogs: {
+                    none: {
+                      action: "STATUS_CHANGED",
+                      newValue: "CANCELLED",
+                    },
+                  },
+                },
+                { updatedAt: dateRange },
+              ],
+            },
+          ],
+        };
+
         const dateOrFilters: Prisma.OrderWhereInput[] = [
-          {
-            status: { in: ["DELIVERED", "CANCELLED"] },
-            updatedAt: dateRange,
-          },
+          deliveredInRangeFilter,
+          cancelledInRangeFilter,
           {
             status: { notIn: ["DELIVERED", "CANCELLED"] },
             delivery: {
