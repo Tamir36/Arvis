@@ -56,10 +56,10 @@ interface SalesHistoryItem {
 
 function getSalesReasonLabel(item: SalesHistoryItem): string {
   if (item.action === "DRIVER_STOCK_DEDUCTED") {
-    if (item.reason === "delivered") return "Хүргэлт хийсэн тул хассан";
+    if (item.reason === "delivered") return "Хүргэлт хийгдсэн";
     if (item.reason === "reserved") return "Захиалга баталгаажсан тул хассан";
     if (item.reason === "driver_reassigned") return "Жолооч солигдсон тул хассан";
-    return "Захиалгын дагуу хассан";
+    return "Хүргэлт хийгдсэн";
   }
 
   if (item.reason === "cancelled") return "Захиалга цуцлагдсан тул буцаасан";
@@ -368,7 +368,7 @@ export default function ProductDetailPage() {
       quantityLabel: item.action === "DRIVER_STOCK_RESTORED" ? `+${item.quantity}` : `-${item.quantity}`,
       quantityVariant: item.action === "DRIVER_STOCK_RESTORED" ? ("success" as const) : ("danger" as const),
       actor: item.driver?.name ?? item.actor?.name ?? "Жолооч",
-      note: `${item.order.orderNumber} | ${item.driver?.name ?? item.actor?.name ?? "Жолооч"} | ${getSalesReasonLabel(item)}`,
+      note: `${item.order.phone ?? item.order.orderNumber} | ${item.driver?.name ?? item.actor?.name ?? "Жолооч"} | ${getSalesReasonLabel(item)}`,
     })),
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())

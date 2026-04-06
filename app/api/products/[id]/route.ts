@@ -40,22 +40,30 @@ function parseAuditItems(raw: string | null) {
   }
 }
 
-function parseStockAuditMeta(raw: string | null): { reason: string | null } {
-  if (!raw) return { reason: null };
+function parseStockAuditMeta(raw: string | null): { reason: string | null; driverId: string | null; driverName: string | null } {
+  if (!raw) {
+    return { reason: null, driverId: null, driverName: null };
+  }
 
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { reason: null };
+      return { reason: null, driverId: null, driverName: null };
     }
 
     return {
       reason: typeof (parsed as { reason?: unknown }).reason === "string"
         ? (parsed as { reason: string }).reason
         : null,
+      driverId: typeof (parsed as { driverId?: unknown }).driverId === "string"
+        ? (parsed as { driverId: string }).driverId
+        : null,
+      driverName: typeof (parsed as { driverName?: unknown }).driverName === "string"
+        ? (parsed as { driverName: string }).driverName
+        : null,
     };
   } catch {
-    return { reason: null };
+    return { reason: null, driverId: null, driverName: null };
   }
 }
 
@@ -173,6 +181,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<Params
           if (qty <= 0) return null;
 
           const meta = parseStockAuditMeta(log.newValue);
+          const resolvedDriver = meta.driverName
+            ? { id: meta.driverId ?? log.order.assignedTo?.id ?? "", name: meta.driverName }
+            : log.order.assignedTo;
 
           return {
             id: log.id,
@@ -181,7 +192,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<Params
             quantity: qty,
             reason: meta.reason,
             actor: log.user,
-            driver: log.order.assignedTo,
+            driver: resolvedDriver,
             order: {
               id: log.order.id,
               orderNumber: log.order.orderNumber,
@@ -337,6 +348,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           if (qty <= 0) return null;
 
           const meta = parseStockAuditMeta(log.newValue);
+          const resolvedDriver = meta.driverName
+            ? { id: meta.driverId ?? log.order.assignedTo?.id ?? "", name: meta.driverName }
+            : log.order.assignedTo;
 
           return {
             id: log.id,
@@ -345,7 +359,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
             quantity: qty,
             reason: meta.reason,
             actor: log.user,
-            driver: log.order.assignedTo,
+            driver: resolvedDriver,
             order: {
               id: log.order.id,
               orderNumber: log.order.orderNumber,

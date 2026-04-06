@@ -633,7 +633,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         newValue: buildStockAuditPayload(nextItemsForStockValidation, {
           driverId: targetDriverId,
           driverName: targetDriverName,
-          reason: "driver_reassigned",
+          reason: nextStatus === "DELIVERED" ? "delivered" : "driver_reassigned",
         }),
       });
     }
