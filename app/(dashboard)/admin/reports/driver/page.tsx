@@ -24,6 +24,7 @@ interface DriverOrderRow {
   customerName: string;
   customerPhone: string;
   createdAt: string;
+  deliveredAt?: string;
   items: DriverOrderItem[];
 }
 
@@ -220,7 +221,7 @@ export default function DriverReportPage() {
                         <td className="px-4 py-3 text-center text-slate-400">{idx + 1}</td>
                         <td className="px-4 py-3">
                           <p className="font-medium text-slate-700">
-                            {new Date(order.createdAt).toLocaleDateString("mn-MN")}
+                            {new Date(order.deliveredAt ?? order.createdAt).toLocaleDateString("mn-MN")}
                           </p>
                         </td>
                         <td className="px-4 py-3 text-slate-700">{order.customerPhone}</td>

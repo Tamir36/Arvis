@@ -35,8 +35,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const isDriver = session.user.role === "DRIVER";
-
   const { searchParams } = new URL(request.url);
   const targetDate = parseDateKey(searchParams.get("date"));
   const y = targetDate.getFullYear();
@@ -46,13 +44,11 @@ export async function GET(request: Request) {
   const dayStart = new Date(y, m, d, 0, 0, 0, 0);
   const dayEnd = new Date(y, m, d, 23, 59, 59, 999);
 
-  // Fetch all assigned orders for the day, including direct-created orders without delivery rows.
+  // Fetch delivered orders first; day filtering is applied by the latest DELIVERED status-change timestamp.
   const orders = await prisma.order.findMany({
     where: {
       assignedToId: { not: null },
-      ...(isDriver ? { assignedToId: session.user.id } : {}),
       status: "DELIVERED",
-      updatedAt: { gte: dayStart, lte: dayEnd },
     },
     select: {
       id: true,
@@ -61,6 +57,7 @@ export async function GET(request: Request) {
       paymentStatus: true,
       total: true,
       createdAt: true,
+      updatedAt: true,
       assignedToId: true,
       assignedTo: {
         select: { id: true, name: true },
@@ -78,6 +75,39 @@ export async function GET(request: Request) {
       },
     },
     orderBy: { createdAt: "asc" },
+  });
+
+  const deliveredLogs = orders.length > 0
+    ? await prisma.orderAuditLog.findMany({
+        where: {
+          action: "STATUS_CHANGED",
+          newValue: "DELIVERED",
+          orderId: { in: orders.map((order) => order.id) },
+        },
+        select: {
+          orderId: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const latestDeliveredAtMap = new Map<string, Date>();
+  for (const log of deliveredLogs) {
+    if (!latestDeliveredAtMap.has(log.orderId)) {
+      latestDeliveredAtMap.set(log.orderId, log.createdAt);
+    }
+  }
+
+  const filteredOrders = orders.filter((order) => {
+    const deliveredAt = latestDeliveredAtMap.get(order.id) ?? order.updatedAt;
+    return deliveredAt >= dayStart && deliveredAt <= dayEnd;
+  });
+
+  filteredOrders.sort((a, b) => {
+    const aDeliveredAt = latestDeliveredAtMap.get(a.id) ?? a.updatedAt;
+    const bDeliveredAt = latestDeliveredAtMap.get(b.id) ?? b.updatedAt;
+    return aDeliveredAt.getTime() - bDeliveredAt.getTime();
   });
 
   // Group by driver
@@ -105,6 +135,7 @@ export async function GET(request: Request) {
         customerName: string;
         customerPhone: string;
         createdAt: Date;
+        deliveredAt: string;
         items: {
           id: string;
           name: string;
@@ -115,7 +146,7 @@ export async function GET(request: Request) {
     }
   >();
 
-  for (const order of orders) {
+  for (const order of filteredOrders) {
     if (!order.assignedToId || !order.assignedTo) continue;
 
     const key = order.assignedToId;
@@ -168,6 +199,7 @@ export async function GET(request: Request) {
       customerName: order.customer.name,
       customerPhone: order.customer.phone,
       createdAt: order.createdAt,
+      deliveredAt: (latestDeliveredAtMap.get(order.id) ?? order.updatedAt).toISOString(),
       items: order.items.map((it) => ({
         id: it.id,
         name: it.name,
