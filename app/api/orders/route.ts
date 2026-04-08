@@ -517,7 +517,12 @@ export async function GET(req: NextRequest) {
 
         const deliveredInRangeFilter: Prisma.OrderWhereInput = {
           OR: [
-            { id: { in: deliveredOrderIds } },
+            {
+              AND: [
+                { status: "DELIVERED" },
+                { id: { in: deliveredOrderIds } },
+              ],
+            },
             {
               AND: [
                 {
@@ -539,7 +544,12 @@ export async function GET(req: NextRequest) {
 
         const cancelledInRangeFilter: Prisma.OrderWhereInput = {
           OR: [
-            { id: { in: cancelledOrderIds } },
+            {
+              AND: [
+                { status: "CANCELLED" },
+                { id: { in: cancelledOrderIds } },
+              ],
+            },
             {
               AND: [
                 {
@@ -561,7 +571,12 @@ export async function GET(req: NextRequest) {
 
         const returnedInRangeFilter: Prisma.OrderWhereInput = {
           OR: [
-            { id: { in: returnedOrderIds } },
+            {
+              AND: [
+                { status: "RETURNED" },
+                { id: { in: returnedOrderIds } },
+              ],
+            },
             {
               AND: [
                 {
@@ -691,7 +706,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (!fromDate && !toDate && hasStatusFilter) {
+    if (hasStatusFilter) {
       andFilters.push({ status: { in: requestedStatuses as any } });
     }
 
