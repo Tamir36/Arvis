@@ -63,6 +63,7 @@ const driverNav: NavItem[] = [
   { type: "item", href: "/driver", label: "Тооцоо нийлэх", icon: <LayoutDashboard className="w-4.5 h-4.5" /> },
   { type: "item", href: "/driver/deliveries", label: "Миний хүргэлт", icon: <Truck className="w-4.5 h-4.5" /> },
   { type: "item", href: "/driver/stock", label: "Барааны үлдэгдэл", icon: <PackageCheck className="w-4.5 h-4.5" /> },
+  { type: "item", href: "/driver/stock-detail", label: "Үлдэгдлийн дэлгэрэнгүй", icon: <ClipboardList className="w-4.5 h-4.5" /> },
 ];
 
 function getNavItems(role: string): AdminNavEntry[] {

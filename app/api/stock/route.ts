@@ -43,7 +43,7 @@ export async function GET() {
       where: {
         order: {
           assignedToId: { not: null },
-          status: { in: ["CONFIRMED"] },
+          status: { in: ["CONFIRMED", "RETURNED"] },
         },
       },
       select: {

@@ -140,6 +140,7 @@ const STATUS_OPTIONS: Array<{ value: string; label: string; className: string }>
 ];
 
 const REGISTRATION_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "PENDING");
+const ORDER_LIMIT_OPTIONS = [200, 400, 600] as const;
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   UNPAID: "Төлөөгүй",
@@ -480,6 +481,7 @@ export default function OperatorOrdersPage() {
   const [driverFilter, setDriverFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [registeredProductFilter, setRegisteredProductFilter] = useState<string[]>([]);
+  const [orderFetchLimit, setOrderFetchLimit] = useState<number>(200);
 
   const [registrationItems, setRegistrationItems] = useState<RegistrationItem[]>([createRegistrationItem()]);
   const [registrationProductQueries, setRegistrationProductQueries] = useState<Record<string, string>>({});
@@ -537,7 +539,7 @@ export default function OperatorOrdersPage() {
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchesDriver = driverFilter.length === 0 || (order.assignedTo?.id ? driverFilter.includes(order.assignedTo.id) : false);
-      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(order.status);
+      const matchesStatus = true;
       const matchesProduct = registeredProductFilter.length === 0 || order.items.some((item) => registeredProductFilter.includes(item.product.id));
       return matchesDriver && matchesStatus && matchesProduct;
     });
@@ -593,7 +595,7 @@ export default function OperatorOrdersPage() {
     setOrders((current) => {
       const index = current.findIndex((entry) => entry.id === parsed.id);
       if (index === -1) {
-        return [parsed, ...current].slice(0, 200);
+        return [parsed, ...current].slice(0, orderFetchLimit);
       }
 
       const next = [...current];
@@ -610,7 +612,7 @@ export default function OperatorOrdersPage() {
       ...current,
       [parsed.id]: parsed.assignedTo?.id ?? "",
     }));
-  }, [toOrderRow]);
+  }, [orderFetchLimit, toOrderRow]);
 
   const isAbortError = useCallback((error: unknown) => {
     if (error instanceof DOMException) {
@@ -632,9 +634,10 @@ export default function OperatorOrdersPage() {
 
     setIsLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "200", includeCount: "0" });
+      const params = new URLSearchParams({ limit: String(orderFetchLimit), includeCount: "0" });
       if (normalizedFilterFromDate) params.set("fromDate", normalizedFilterFromDate);
       if (normalizedFilterToDate) params.set("toDate", normalizedFilterToDate);
+      if (statusFilter.length > 0) params.set("statuses", statusFilter.join(","));
       if (debouncedPhoneSearch.trim()) params.set("phone", debouncedPhoneSearch.trim());
       if (debouncedAddressSearch.trim()) params.set("address", debouncedAddressSearch.trim());
       if (debouncedProductSearch.trim()) params.set("product", debouncedProductSearch.trim());
@@ -718,9 +721,11 @@ export default function OperatorOrdersPage() {
   }, [
     normalizedFilterFromDate,
     normalizedFilterToDate,
+    statusFilter,
     debouncedPhoneSearch,
     debouncedAddressSearch,
     debouncedProductSearch,
+    orderFetchLimit,
     isAbortError,
     toOrderRow,
   ]);
@@ -1806,8 +1811,12 @@ export default function OperatorOrdersPage() {
                       ? order.items.map((item) => `- ${item.product.name} x${item.qty}`).join("\n")
                       : "-";
                     const nextStatus = pendingStatuses[order.id] ?? order.status;
-                    const carryoverDisplayDate = normalizedFilterToDate || normalizedFilterFromDate || getTodayLocal();
-                    const orderDisplayDate = order.delivery?.timeSlot?.date
+                    const todayLocal = getTodayLocal();
+                    const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
+                    const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
+                    const orderDisplayDate = order.status === "RETURNED"
+                      ? carryoverDisplayDate
+                      : order.delivery?.timeSlot?.date
                       ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
 
                     return (
@@ -1897,6 +1906,20 @@ export default function OperatorOrdersPage() {
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+            <span>Харах мөрийн хэмжээ:</span>
+            <select
+              value={orderFetchLimit}
+              onChange={(e) => setOrderFetchLimit(Number(e.target.value))}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {ORDER_LIMIT_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </div>
         </Card>
       </div>

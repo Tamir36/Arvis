@@ -282,6 +282,7 @@ export default function DriverDeliveriesPage() {
               const nextStatus = pendingStatuses[order.id] ?? order.status;
               const statusOptions = getStatusOptions(order.status);
               const isPaymentReceived = order.paymentStatus === "PAID";
+              const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
               return (
                 <div key={order.id} className="rounded-xl border border-slate-200 p-3">
                   <div className="flex items-start justify-between gap-2">
@@ -312,11 +313,14 @@ export default function DriverDeliveriesPage() {
                       <div key={item.id} className="grid grid-cols-[1fr_auto_auto] gap-2">
                         <p className="text-slate-700">{item.name}</p>
                         <p className="text-slate-500">x{item.qty}</p>
-                        <p className={isPaymentReceived ? "font-semibold text-emerald-700" : "text-slate-500"}>
-                          {isPaymentReceived ? "Тооцоо орсон" : formatPrice(Number(item.unitPrice))}
-                        </p>
+                        <p className="text-slate-500">{formatPrice(Number(item.unitPrice))}</p>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="mt-2 text-right text-sm font-semibold text-slate-800">
+                    Нийт дүн: {formatPrice(orderTotal)}
+                    {isPaymentReceived && <span className="ml-2 text-emerald-700">(Тооцоо орсон)</span>}
                   </div>
 
                   <div className="mt-3 space-y-2">
@@ -365,6 +369,7 @@ export default function DriverDeliveriesPage() {
                   const nextStatus = pendingStatuses[order.id] ?? order.status;
                   const statusOptions = getStatusOptions(order.status);
                   const isPaymentReceived = order.paymentStatus === "PAID";
+                  const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
                   return (
                     <tr key={order.id} className="align-top">
                       <td className="p-3">
@@ -396,14 +401,9 @@ export default function DriverDeliveriesPage() {
                         </div>
                       </td>
                       <td className="p-3">
-                        <div className={`space-y-1 text-xs ${isPaymentReceived ? "font-semibold text-emerald-700" : "text-slate-600"}`}>
-                          {isPaymentReceived ? (
-                            <div>Тооцоо орсон</div>
-                          ) : (
-                            order.items.map((item) => (
-                              <div key={item.id}>{formatPrice(Number(item.unitPrice))}</div>
-                            ))
-                          )}
+                        <div className={`text-xs ${isPaymentReceived ? "font-semibold text-emerald-700" : "text-slate-700"}`}>
+                          <div>{formatPrice(orderTotal)}</div>
+                          {isPaymentReceived && <div className="mt-1 text-emerald-700">Тооцоо орсон</div>}
                         </div>
                       </td>
                       <td className="p-3 text-xs text-slate-600">{order.shippingAddress || order.customer.address || "-"}</td>

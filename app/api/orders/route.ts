@@ -15,6 +15,8 @@ const CONTACT_LABELS: Record<string, string> = {
   BUSY: "Завгүй",
 };
 
+const ALL_ORDER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
+
 const ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
 const DRIVER_RESERVED_STATUSES = ["CONFIRMED", "SHIPPED", "DELIVERED"] as const;
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED"] as const;
@@ -50,7 +52,9 @@ function parseDateStart(value: string | null): Date | null {
   }
 
   const [y, m, d] = value.split("-").map(Number);
-  return startOfDay(new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0)));
+
+  // Convert selected UB calendar day to an exact UTC boundary for 00:00 UB.
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
 }
 
 function toDayEnd(dayStart: Date): Date {
@@ -393,15 +397,28 @@ export async function GET(req: NextRequest) {
     });
 
     const { searchParams } = new URL(req.url);
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "10"));
+    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+    const requestedLimit = parseInt(searchParams.get("limit") ?? "10", 10);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(600, requestedLimit)
+      : 10;
     const includeCount = searchParams.get("includeCount") !== "0";
     const search = searchParams.get("search") ?? "";
     const phone = searchParams.get("phone") ?? "";
     const address = searchParams.get("address") ?? "";
     const product = searchParams.get("product") ?? "";
+    const statusesParam = searchParams.get("statuses") ?? "";
     const fromDate = searchParams.get("fromDate");
     const toDate = searchParams.get("toDate");
+
+    const requestedStatuses = statusesParam
+      .split(",")
+      .map((status) => status.trim().toUpperCase())
+      .filter((status): status is (typeof ALL_ORDER_STATUSES)[number] =>
+        (ALL_ORDER_STATUSES as readonly string[]).includes(status),
+      );
+    const hasStatusFilter = requestedStatuses.length > 0;
+    const requestedStatusSet = new Set(requestedStatuses);
 
     const where: Prisma.OrderWhereInput = {};
     const andFilters: Prisma.OrderWhereInput[] = [];
@@ -435,35 +452,77 @@ export async function GET(req: NextRequest) {
         && (!dateRange.lte || dateRange.lte >= todayStart);
 
       if (dateRange.gte || dateRange.lte) {
+        const deliveredLatestLogs = await prisma.orderAuditLog.groupBy({
+          by: ["orderId"],
+          where: {
+            action: "STATUS_CHANGED",
+            newValue: "DELIVERED",
+          },
+          _max: {
+            createdAt: true,
+          },
+        });
+
+        const deliveredOrderIds = deliveredLatestLogs
+          .filter((row) => {
+            const ts = row._max.createdAt;
+            if (!ts) return false;
+            if (dateRange.gte && ts < dateRange.gte) return false;
+            if (dateRange.lte && ts > dateRange.lte) return false;
+            return true;
+          })
+          .map((row) => row.orderId);
+
+        const cancelledLatestLogs = await prisma.orderAuditLog.groupBy({
+          by: ["orderId"],
+          where: {
+            action: "STATUS_CHANGED",
+            newValue: "CANCELLED",
+          },
+          _max: {
+            createdAt: true,
+          },
+        });
+
+        const cancelledOrderIds = cancelledLatestLogs
+          .filter((row) => {
+            const ts = row._max.createdAt;
+            if (!ts) return false;
+            if (dateRange.gte && ts < dateRange.gte) return false;
+            if (dateRange.lte && ts > dateRange.lte) return false;
+            return true;
+          })
+          .map((row) => row.orderId);
+
+        const returnedLatestLogs = await prisma.orderAuditLog.groupBy({
+          by: ["orderId"],
+          where: {
+            action: "STATUS_CHANGED",
+            newValue: "RETURNED",
+          },
+          _max: {
+            createdAt: true,
+          },
+        });
+
+        const returnedOrderIds = returnedLatestLogs
+          .filter((row) => {
+            const ts = row._max.createdAt;
+            if (!ts) return false;
+            if (dateRange.gte && ts < dateRange.gte) return false;
+            if (dateRange.lte && ts > dateRange.lte) return false;
+            return true;
+          })
+          .map((row) => row.orderId);
+
         const deliveredInRangeFilter: Prisma.OrderWhereInput = {
-          status: "DELIVERED",
           OR: [
+            { id: { in: deliveredOrderIds } },
             {
               AND: [
                 {
-                  auditLogs: {
-                    some: {
-                      action: "STATUS_CHANGED",
-                      newValue: "DELIVERED",
-                      createdAt: dateRange,
-                    },
-                  },
+                  status: "DELIVERED",
                 },
-                ...(dateRange.lte
-                  ? [{
-                      auditLogs: {
-                        none: {
-                          action: "STATUS_CHANGED",
-                          newValue: "DELIVERED",
-                          createdAt: { gt: dateRange.lte },
-                        },
-                      },
-                    } as Prisma.OrderWhereInput]
-                  : []),
-              ],
-            },
-            {
-              AND: [
                 {
                   auditLogs: {
                     none: {
@@ -479,34 +538,13 @@ export async function GET(req: NextRequest) {
         };
 
         const cancelledInRangeFilter: Prisma.OrderWhereInput = {
-          status: "CANCELLED",
           OR: [
+            { id: { in: cancelledOrderIds } },
             {
               AND: [
                 {
-                  auditLogs: {
-                    some: {
-                      action: "STATUS_CHANGED",
-                      newValue: "CANCELLED",
-                      createdAt: dateRange,
-                    },
-                  },
+                  status: "CANCELLED",
                 },
-                ...(dateRange.lte
-                  ? [{
-                      auditLogs: {
-                        none: {
-                          action: "STATUS_CHANGED",
-                          newValue: "CANCELLED",
-                          createdAt: { gt: dateRange.lte },
-                        },
-                      },
-                    } as Prisma.OrderWhereInput]
-                  : []),
-              ],
-            },
-            {
-              AND: [
                 {
                   auditLogs: {
                     none: {
@@ -521,11 +559,56 @@ export async function GET(req: NextRequest) {
           ],
         };
 
-        const dateOrFilters: Prisma.OrderWhereInput[] = [
-          deliveredInRangeFilter,
-          cancelledInRangeFilter,
-          {
-            status: { notIn: ["DELIVERED", "CANCELLED"] },
+        const returnedInRangeFilter: Prisma.OrderWhereInput = {
+          OR: [
+            { id: { in: returnedOrderIds } },
+            {
+              AND: [
+                {
+                  status: "RETURNED",
+                },
+                {
+                  auditLogs: {
+                    none: {
+                      action: "STATUS_CHANGED",
+                      newValue: "RETURNED",
+                    },
+                  },
+                },
+                { updatedAt: dateRange },
+              ],
+            },
+          ],
+        };
+
+        const includeDelivered = !hasStatusFilter || requestedStatusSet.has("DELIVERED");
+        const includeCancelled = !hasStatusFilter || requestedStatusSet.has("CANCELLED");
+        const includeReturned = !hasStatusFilter || requestedStatusSet.has("RETURNED");
+        const nonTerminalStatuses = hasStatusFilter
+          ? requestedStatuses.filter((status) => !["DELIVERED", "CANCELLED", "RETURNED"].includes(status))
+          : [];
+
+        const dateOrFilters: Prisma.OrderWhereInput[] = [];
+
+        if (includeDelivered) {
+          dateOrFilters.push(deliveredInRangeFilter);
+        }
+
+        if (includeCancelled) {
+          dateOrFilters.push(cancelledInRangeFilter);
+        }
+
+        if (includeReturned) {
+          dateOrFilters.push(returnedInRangeFilter);
+        }
+
+        if (!hasStatusFilter || nonTerminalStatuses.length > 0) {
+          const nonTerminalStatusFilter: Prisma.OrderWhereInput = nonTerminalStatuses.length > 0
+            ? { status: { in: nonTerminalStatuses as any } }
+            : { status: { notIn: ["DELIVERED", "CANCELLED"] } };
+
+          dateOrFilters.push({
+            ...nonTerminalStatusFilter,
             delivery: {
               is: {
                 timeSlot: {
@@ -535,8 +618,9 @@ export async function GET(req: NextRequest) {
                 },
               },
             },
-          },
-          {
+          });
+
+          dateOrFilters.push({
             AND: [
               {
                 OR: [
@@ -544,56 +628,71 @@ export async function GET(req: NextRequest) {
                   { delivery: { is: { timeSlotId: null } } },
                 ],
               },
-              {
-                status: { notIn: ["DELIVERED", "CANCELLED"] },
-              },
+              nonTerminalStatusFilter,
               {
                 createdAt: dateRange,
               },
             ],
-          },
-        ];
+          });
+        }
 
         if (includesToday) {
-          dateOrFilters.push({
-            AND: [
-              {
-                status: { in: [...ROLLOVER_STATUSES] },
-              },
-              {
-                createdAt: { lt: todayStart },
-              },
-              {
-                OR: [
-                  { delivery: { is: null } },
-                  { delivery: { is: { timeSlotId: null } } },
-                  {
-                    delivery: {
-                      is: {
-                        timeSlot: {
-                          is: {
-                            date: { lt: todayStart },
+          const todayCarryoverStatuses = hasStatusFilter
+            ? requestedStatuses.filter((status) => (ROLLOVER_STATUSES as readonly string[]).includes(status))
+            : [...ROLLOVER_STATUSES];
+
+          if (todayCarryoverStatuses.length > 0) {
+            dateOrFilters.push({
+              AND: [
+                {
+                  status: { in: todayCarryoverStatuses as any },
+                },
+                {
+                  createdAt: { lt: todayStart },
+                },
+                {
+                  OR: [
+                    { delivery: { is: null } },
+                    { delivery: { is: { timeSlotId: null } } },
+                    {
+                      delivery: {
+                        is: {
+                          timeSlot: {
+                            is: {
+                              date: { lt: todayStart },
+                            },
                           },
                         },
                       },
                     },
-                  },
-                ],
-              },
-            ],
-          });
+                  ],
+                },
+              ],
+            });
+          }
         }
 
-        andFilters.push({
-          OR: dateOrFilters,
-        });
+        andFilters.push({ OR: dateOrFilters });
 
         if (!includesToday) {
-          andFilters.push({
-            status: { notIn: [...ROLLOVER_STATUSES] },
-          });
+          if (hasStatusFilter) {
+            const noTodayStatuses = requestedStatuses.filter((status) => !ROLLOVER_STATUSES.includes(status as any));
+            if (noTodayStatuses.length > 0) {
+              andFilters.push({ status: { in: noTodayStatuses as any } });
+            } else {
+              andFilters.push({ id: { in: [] } });
+            }
+          } else {
+            andFilters.push({
+              status: { notIn: [...ROLLOVER_STATUSES] },
+            });
+          }
         }
       }
+    }
+
+    if (!fromDate && !toDate && hasStatusFilter) {
+      andFilters.push({ status: { in: requestedStatuses as any } });
     }
 
     if (search) {
