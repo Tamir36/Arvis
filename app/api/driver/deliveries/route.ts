@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 
 const AUTO_ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "SHIPPED", "RETURNED"] as const;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
+const TERMINAL_STATUSES = ["DELIVERED", "RETURNED", "CANCELLED"] as const;
 
 function startOfDay(date: Date): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -122,6 +123,34 @@ function parseDateKey(value: string | null): Date {
   return startOfDay(new Date(Date.UTC(y, m - 1, d, 12, 0, 0, 0)));
 }
 
+function getLatestStatusChangeAt(
+  auditLogs: Array<{ newValue: string | null; createdAt: Date }>,
+  status: string,
+) {
+  const match = auditLogs.find((log) => String(log.newValue ?? "").toUpperCase() === status);
+  return match?.createdAt ?? null;
+}
+
+function getEffectiveDeliveryDate(order: {
+  status: string;
+  updatedAt: Date;
+  delivery: { timeSlot: { date: Date } | null } | null;
+  auditLogs: Array<{ newValue: string | null; createdAt: Date }>;
+}) {
+  const status = String(order.status).toUpperCase();
+  const slotDate = order.delivery?.timeSlot?.date ?? null;
+
+  if (status === "RETURNED") {
+    return slotDate ?? getLatestStatusChangeAt(order.auditLogs, status) ?? order.updatedAt;
+  }
+
+  if (status === "DELIVERED" || status === "CANCELLED") {
+    return getLatestStatusChangeAt(order.auditLogs, status) ?? slotDate ?? order.updatedAt;
+  }
+
+  return slotDate ?? order.updatedAt;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -143,64 +172,20 @@ export async function GET(req: NextRequest) {
     const todayStart = startOfDay(new Date());
     const isHistoricalDay = dayEnd < todayStart;
 
-    const [deliveries, driverStocks, stockHistory] = await Promise.all([
+    const [rawDeliveries, driverStocks, stockHistory] = await Promise.all([
       prisma.order.findMany({
         where: {
           status: { not: "PENDING" },
-          ...(isHistoricalDay ? { status: { notIn: [...AUTO_ROLLOVER_STATUSES] } } : {}),
           OR: [
-            // Current driver assigned to order
             {
               assignedToId: session.user.id,
-              OR: [
-                {
-                  delivery: {
-                    is: {
-                      timeSlot: {
-                        is: {
-                          date: {
-                            gte: dayStart,
-                            lte: dayEnd,
-                          },
-                        },
-                      },
-                    },
-                  },
-                },
-                {
-                  AND: [
-                    { status: "RETURNED" },
-                    { updatedAt: { gte: dayStart, lte: dayEnd } },
-                  ],
-                },
-                {
-                  AND: [
-                    {
-                      OR: [
-                        { delivery: { is: null } },
-                        { delivery: { is: { timeSlotId: null } } },
-                      ],
-                    },
-                    { updatedAt: { gte: dayStart, lte: dayEnd } },
-                  ],
-                },
-              ],
             },
-            // Delivery agent assigned to order (even if assignedToId changed)
             {
               delivery: {
                 is: {
                   agent: {
                     is: {
                       userId: session.user.id,
-                    },
-                  },
-                  timeSlot: {
-                    is: {
-                      date: {
-                        gte: dayStart,
-                        lte: dayEnd,
-                      },
                     },
                   },
                 },
@@ -233,6 +218,17 @@ export async function GET(req: NextRequest) {
                 },
               },
             },
+          },
+          auditLogs: {
+            where: {
+              action: "STATUS_CHANGED",
+              newValue: { in: [...TERMINAL_STATUSES] },
+            },
+            select: {
+              newValue: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "desc" },
           },
         },
         orderBy: { createdAt: "asc" },
@@ -279,8 +275,31 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    const deliveries = rawDeliveries
+      .map((order) => {
+        const effectiveDate = getEffectiveDeliveryDate(order);
+
+        return {
+          ...order,
+          effectiveDate,
+        };
+      })
+      .filter((order) => {
+        const status = String(order.status).toUpperCase();
+        if (isHistoricalDay && AUTO_ROLLOVER_STATUSES.includes(status as (typeof AUTO_ROLLOVER_STATUSES)[number])) {
+          return false;
+        }
+
+        return order.effectiveDate >= dayStart && order.effectiveDate <= dayEnd;
+      })
+      .sort((left, right) => left.effectiveDate.getTime() - right.effectiveDate.getTime())
+      .map(({ effectiveDate, auditLogs, ...order }) => ({
+        ...order,
+        effectiveDate: effectiveDate.toISOString(),
+      }));
+
     return NextResponse.json({
-      selectedDate: `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`,
+      selectedDate: searchParams.get("date") ?? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`,
       deliveries,
       stocks: driverStocks,
       stockHistory,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Header from "@/components/layout/Header";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { formatPrice } from "@/lib/utils";
 
 interface DeliveryItem {
@@ -19,6 +19,7 @@ interface DeliveryOrder {
   paymentStatus: string;
   createdAt: string;
   updatedAt: string;
+  effectiveDate?: string;
   notes: string | null;
   shippingAddress: string | null;
   delivery: {
@@ -95,6 +96,34 @@ const DELIVERY_STATUS_PRIORITY: Record<string, number> = {
   CANCELLED: 3,
 };
 
+type DriverStatusTab = "ALL" | "DELIVERED" | "RETURNED" | "CANCELLED";
+
+const DRIVER_STATUS_TABS: Array<{ value: DriverStatusTab; label: string }> = [
+  { value: "ALL", label: "Нийт" },
+  { value: "DELIVERED", label: "Хүргэсэн" },
+  { value: "RETURNED", label: "Хойшилсон" },
+  { value: "CANCELLED", label: "Цуцалсан" },
+];
+
+const TAB_STYLE_MAP: Record<DriverStatusTab, { active: string; inactive: string }> = {
+  ALL: {
+    active: "border-sky-500 bg-sky-500 text-white",
+    inactive: "border-sky-200 bg-sky-50 text-sky-700",
+  },
+  DELIVERED: {
+    active: "border-emerald-500 bg-emerald-500 text-white",
+    inactive: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  RETURNED: {
+    active: "border-amber-500 bg-amber-500 text-white",
+    inactive: "border-amber-200 bg-amber-50 text-amber-700",
+  },
+  CANCELLED: {
+    active: "border-rose-500 bg-rose-500 text-white",
+    inactive: "border-rose-200 bg-rose-50 text-rose-700",
+  },
+};
+
 function sortDriverDeliveries(rows: DeliveryOrder[]) {
   return [...rows].sort((left, right) => {
     const leftPriority = DELIVERY_STATUS_PRIORITY[left.status] ?? 99;
@@ -112,6 +141,14 @@ function sortDriverDeliveries(rows: DeliveryOrder[]) {
 
     return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
   });
+}
+
+function tabMatchesStatus(tab: DriverStatusTab, status: string): boolean {
+  if (tab === "ALL") return true;
+  if (tab === "DELIVERED") {
+    return status === "DELIVERED" || status === "LATE_DELIVERED";
+  }
+  return status === tab;
 }
 
 function buildOrderCopyText(order: DeliveryOrder): string {
@@ -132,6 +169,7 @@ export default function DriverDeliveriesPage() {
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [phoneSearch, setPhoneSearch] = useState("");
+  const [statusTab, setStatusTab] = useState<DriverStatusTab>("ALL");
 
   const loadData = useCallback(async (dateKey?: string) => {
     setLoading(true);
@@ -170,18 +208,32 @@ export default function DriverDeliveriesPage() {
     };
   }, []);
 
-  const orderCount = useMemo(() => orders.length, [orders]);
+  const getEffectiveStatus = useCallback((order: DeliveryOrder) => {
+    return String(pendingStatuses[order.id] ?? order.status).toUpperCase();
+  }, [pendingStatuses]);
+
+  const tabCounts = useMemo(() => {
+    const delivered = orders.filter((order) => tabMatchesStatus("DELIVERED", getEffectiveStatus(order))).length;
+    const returned = orders.filter((order) => tabMatchesStatus("RETURNED", getEffectiveStatus(order))).length;
+    const cancelled = orders.filter((order) => tabMatchesStatus("CANCELLED", getEffectiveStatus(order))).length;
+
+    return {
+      ALL: orders.length,
+      DELIVERED: delivered,
+      RETURNED: returned,
+      CANCELLED: cancelled,
+    } as const;
+  }, [orders, getEffectiveStatus]);
+
   const filteredOrders = useMemo(() => {
+    const statusFiltered = statusTab === "ALL"
+      ? orders
+      : orders.filter((order) => tabMatchesStatus(statusTab, getEffectiveStatus(order)));
+
     const keyword = phoneSearch.trim();
-    if (!keyword) return orders;
-    return orders.filter((order) => order.customer.phone.includes(keyword));
-  }, [orders, phoneSearch]);
-  const dailyDeliveredCount = useMemo(() => (
-    orders.filter((order) => order.status === "DELIVERED").length
-  ), [orders]);
-  const dailyCancelledCount = useMemo(() => (
-    orders.filter((order) => order.status === "CANCELLED").length
-  ), [orders]);
+    if (!keyword) return statusFiltered;
+    return statusFiltered.filter((order) => order.customer.phone.includes(keyword));
+  }, [orders, phoneSearch, statusTab, getEffectiveStatus]);
 
   async function handleCopyOrderInfo(order: DeliveryOrder) {
     const text = buildOrderCopyText(order);
@@ -240,37 +292,51 @@ export default function DriverDeliveriesPage() {
 
       <div className="space-y-4 p-3 sm:space-y-5 sm:p-5">
         <Card>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">Нийт: {filteredOrders.length}/{orderCount} хүргэлт</div>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
-              />
-              <input
-                type="text"
-                value={phoneSearch}
-                onChange={(e) => setPhoneSearch(e.target.value)}
-                placeholder="Утасны дугаар хайх"
-                className="w-[220px] rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
-              />
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                Хүргэсэн: {dailyDeliveredCount}
-              </div>
-              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                Цуцалсан: {dailyCancelledCount}
+          <div className="space-y-3 p-3 sm:p-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <label htmlFor="driver-date" className="text-sm font-medium text-slate-600">Огноо</label>
+                <input
+                  id="driver-date"
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
+                />
               </div>
             </div>
+
+            <div className="grid grid-cols-4 gap-2">
+                {DRIVER_STATUS_TABS.map((tab) => {
+                  const isActive = statusTab === tab.value;
+                  const tabStyle = TAB_STYLE_MAP[tab.value];
+                  return (
+                    <button
+                      key={tab.value}
+                      type="button"
+                      onClick={() => setStatusTab(tab.value)}
+                      className={`flex h-14 w-full flex-col items-center justify-center rounded-xl border text-center text-[11px] font-semibold leading-tight transition sm:h-16 sm:text-sm ${isActive ? `${tabStyle.active} shadow-sm` : `${tabStyle.inactive} hover:brightness-95`
+                        }`}
+                    >
+                      <span className="block w-full text-center">{tab.label}</span>
+                      <span className="mt-0.5 block w-full text-center text-[11px] font-bold sm:text-xs">{tabCounts[tab.value]}</span>
+                    </button>
+                  );
+                })}
+            </div>
+
+            <input
+              type="text"
+              value={phoneSearch}
+              onChange={(e) => setPhoneSearch(e.target.value)}
+              placeholder="Утасны дугаар хайх"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
+            />
+
           </div>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Хүргэлт</CardTitle>
-          </CardHeader>
-
           <div className="space-y-3 px-3 pb-3 sm:hidden">
             {!loading && filteredOrders.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-400">
@@ -287,7 +353,7 @@ export default function DriverDeliveriesPage() {
                 <div key={order.id} className="rounded-xl border border-slate-200 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="text-xs text-slate-500">{formatDateKey(order.delivery?.timeSlot?.date ?? order.createdAt)}</p>
+                      <p className="text-xs text-slate-500">{formatDateKey(order.effectiveDate ?? order.delivery?.timeSlot?.date ?? order.createdAt)}</p>
                     </div>
                   </div>
 

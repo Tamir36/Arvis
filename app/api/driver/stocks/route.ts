@@ -223,6 +223,19 @@ export async function GET() {
       .map<DriverMovement | null>((log) => {
         const payload = parseAuditPayload(log.newValue);
         const items = payload.items;
+        const currentStatus = String(log.order.status ?? "").toUpperCase();
+
+        const isAssignedReserveLog =
+          log.action === "DRIVER_STOCK_DEDUCTED"
+          && (payload.reason === "reserved" || payload.reason === "reserved_items_changed");
+
+        const isReturnedReleaseLog =
+          log.action === "DRIVER_STOCK_RESTORED"
+          && (payload.reason === "released" || currentStatus === "RETURNED");
+
+        if (isAssignedReserveLog || isReturnedReleaseLog) {
+          return null;
+        }
 
         if (items.length === 0) {
           return null;
