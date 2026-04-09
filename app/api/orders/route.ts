@@ -579,6 +579,22 @@ export async function GET(req: NextRequest) {
             },
             {
               AND: [
+                { status: "RETURNED" },
+                {
+                  delivery: {
+                    is: {
+                      timeSlot: {
+                        is: {
+                          date: dateRange,
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+            {
+              AND: [
                 {
                   status: "RETURNED",
                 },
