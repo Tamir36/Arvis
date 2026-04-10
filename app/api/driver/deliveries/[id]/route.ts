@@ -8,7 +8,7 @@ interface Params {
 }
 
 const DRIVER_STATUS_VALUES = new Set(["DELIVERED", "LATE_DELIVERED", "RETURNED", "CANCELLED"]);
-const STOCK_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "DELIVERED"]);
+const STOCK_CONSUMING_STATUSES = new Set(["DELIVERED"]);
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 
 function startOfDay(date: Date): Date {
@@ -49,6 +49,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const body = await req.json();
     const nextStatusInput = String(body.status ?? "").trim().toUpperCase();
+    const appendedNote = String(body.appendNote ?? "").trim();
 
     if (!DRIVER_STATUS_VALUES.has(nextStatusInput)) {
       return NextResponse.json({ error: "Буруу төлөв" }, { status: 400 });
@@ -56,6 +57,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const isLateDelivered = nextStatusInput === "LATE_DELIVERED";
     const nextStatus = isLateDelivered ? "DELIVERED" : nextStatusInput;
+
+    if ((nextStatus === "RETURNED" || nextStatus === "CANCELLED") && !appendedNote) {
+      return NextResponse.json({ error: "Тайлбар заавал оруулна уу" }, { status: 400 });
+    }
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
@@ -90,13 +95,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       }
 
       const previousStatus = String(order.status);
-      const shouldDeduct = !STOCK_RESERVED_STATUSES.has(previousStatus) && STOCK_RESERVED_STATUSES.has(nextStatus);
-      const shouldRestore = STOCK_RESERVED_STATUSES.has(previousStatus) && !STOCK_RESERVED_STATUSES.has(nextStatus);
+      const shouldDeduct = !STOCK_CONSUMING_STATUSES.has(previousStatus) && STOCK_CONSUMING_STATUSES.has(nextStatus);
+      const shouldRestore = STOCK_CONSUMING_STATUSES.has(previousStatus) && !STOCK_CONSUMING_STATUSES.has(nextStatus);
 
       const now = new Date();
       const updateData: Prisma.OrderUpdateInput = {
         status: nextStatus as any,
       };
+
+      if (appendedNote) {
+        const previousNotes = (order.notes ?? "").trim();
+        updateData.notes = previousNotes ? `${previousNotes},\n${appendedNote}` : appendedNote;
+      }
 
       // When driver marks as RETURNED, always move to tomorrow from "now".
       const scheduledDate = nextStatus === "RETURNED" ? nextDay(now) : startOfDay(now);
@@ -208,16 +218,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         });
       }
 
+      if (appendedNote) {
+        auditChanges.push({
+          user: { connect: { id: session.user.id } },
+          action: "NOTE_ADDED",
+          oldValue: null,
+          newValue: appendedNote,
+        });
+      }
+
       if (shouldDeduct) {
         auditChanges.push({
           user: { connect: { id: session.user.id } },
           action: "DRIVER_STOCK_DEDUCTED",
           oldValue: null,
-          newValue: JSON.stringify(order.items.map((item) => ({
-            productId: item.productId,
-            name: item.name,
-            qty: item.qty,
-          }))),
+          newValue: JSON.stringify({
+            driverId: session.user.id,
+            driverName: order.assignedTo?.name ?? session.user.name ?? null,
+            reason: "delivered",
+            items: order.items.map((item) => ({
+              productId: item.productId,
+              name: item.name,
+              qty: item.qty,
+            })),
+          }),
         });
       }
 

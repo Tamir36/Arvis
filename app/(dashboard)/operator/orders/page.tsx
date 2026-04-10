@@ -28,6 +28,9 @@ interface OrderRow {
     timeSlot?: {
       date: string;
     } | null;
+    agent?: {
+      userId: string;
+    } | null;
   } | null;
   total: number;
   status: string;
@@ -538,8 +541,9 @@ export default function OperatorOrdersPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      const matchesDriver = driverFilter.length === 0 || (order.assignedTo?.id ? driverFilter.includes(order.assignedTo.id) : false);
-      const matchesStatus = true;
+      const driverId = order.assignedTo?.id ?? order.delivery?.agent?.userId ?? "";
+      const matchesDriver = driverFilter.length === 0 || (driverId ? driverFilter.includes(driverId) : false);
+      const matchesStatus = statusFilter.length === 0 || statusFilter.includes(order.status);
       const matchesProduct = registeredProductFilter.length === 0 || order.items.some((item) => registeredProductFilter.includes(item.product.id));
       return matchesDriver && matchesStatus && matchesProduct;
     });
@@ -637,6 +641,7 @@ export default function OperatorOrdersPage() {
       const params = new URLSearchParams({ limit: String(orderFetchLimit), includeCount: "0" });
       if (normalizedFilterFromDate) params.set("fromDate", normalizedFilterFromDate);
       if (normalizedFilterToDate) params.set("toDate", normalizedFilterToDate);
+      if (driverFilter.length > 0) params.set("driverIds", driverFilter.join(","));
       if (statusFilter.length > 0) params.set("statuses", statusFilter.join(","));
       if (debouncedPhoneSearch.trim()) params.set("phone", debouncedPhoneSearch.trim());
       if (debouncedAddressSearch.trim()) params.set("address", debouncedAddressSearch.trim());
@@ -721,6 +726,7 @@ export default function OperatorOrdersPage() {
   }, [
     normalizedFilterFromDate,
     normalizedFilterToDate,
+    driverFilter,
     statusFilter,
     debouncedPhoneSearch,
     debouncedAddressSearch,
@@ -1864,7 +1870,7 @@ export default function OperatorOrdersPage() {
                               const currentDriverId = pendingDriverIds[order.id] ?? "";
                               handleSaveRowWithValues(order.id, newStatus, currentDriverId);
                             }}
-                            className={`w-full rounded-full border px-2 py-1 text-xs font-semibold ${getStatusClass(nextStatus)}`}
+                            className={`h-8 w-full rounded-full border px-2 py-0.5 text-xs font-semibold ${getStatusClass(nextStatus)}`}
                             disabled={savingRowId === order.id}
                           >
                             {STATUS_OPTIONS.map((option) => (
@@ -2043,15 +2049,15 @@ export default function OperatorOrdersPage() {
                         className={`${INPUT_CLASS} min-h-[52px] resize-y whitespace-pre-wrap break-words`}
                       />
                     </label>
-                  </div>
-                </div>
 
-                <div className="overflow-hidden rounded-md border border-slate-300 bg-white">
-                  <div className="flex items-center justify-between border-b border-slate-300 px-2.5 py-1.5">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-800">Барааны дэлгэрэнгүй</h4>
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={handleAddDraftItem}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAddDraftItem}
+                      disabled={isDetailSaving}
+                      className="h-8 rounded-md border-slate-300 px-3 text-xs"
+                    >
                       Бараа нэмэх
                     </Button>
                   </div>
@@ -2105,9 +2111,10 @@ export default function OperatorOrdersPage() {
                                           event.preventDefault();
                                           handleSelectDraftProduct(index, product);
                                         }}
-                                        className="block w-full truncate px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-blue-50"
+                                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-slate-100"
                                       >
-                                        {product.name}
+                                        <span className="truncate text-slate-700">{product.name}</span>
+                                        <span className="text-xs text-slate-400">{formatPrice(product.basePrice)}</span>
                                       </button>
                                     ))}
                                 </div>

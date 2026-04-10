@@ -18,8 +18,7 @@ const CONTACT_LABELS: Record<string, string> = {
 const ALL_ORDER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
 
 const ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
-const DRIVER_RESERVED_STATUSES = ["CONFIRMED", "SHIPPED", "DELIVERED"] as const;
-const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED"] as const;
+const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
@@ -342,9 +341,9 @@ async function ensureDriverHasStock(
   const exceededProducts: string[] = [];
 
   for (const entry of requiredEntries) {
-    const availableQty = stockByProduct.get(entry.productId) ?? 0;
+    const totalQty = stockByProduct.get(entry.productId) ?? 0;
     const reservedQty = reservedByProduct.get(entry.productId) ?? 0;
-    const totalQty = availableQty + reservedQty;
+    const availableQty = totalQty - reservedQty;
 
     if (totalQty <= 0) {
       outOfStockProducts.push(entry.name);
@@ -408,6 +407,7 @@ export async function GET(req: NextRequest) {
     const address = searchParams.get("address") ?? "";
     const product = searchParams.get("product") ?? "";
     const statusesParam = searchParams.get("statuses") ?? "";
+    const driverIdsParam = searchParams.get("driverIds") ?? "";
     const fromDate = searchParams.get("fromDate");
     const toDate = searchParams.get("toDate");
 
@@ -417,6 +417,14 @@ export async function GET(req: NextRequest) {
       .filter((status): status is (typeof ALL_ORDER_STATUSES)[number] =>
         (ALL_ORDER_STATUSES as readonly string[]).includes(status),
       );
+    const requestedDriverIds = Array.from(
+      new Set(
+        driverIdsParam
+          .split(",")
+          .map((driverId) => driverId.trim())
+          .filter(Boolean),
+      ),
+    );
     const hasStatusFilter = requestedStatuses.length > 0;
     const requestedStatusSet = new Set(requestedStatuses);
 
@@ -726,6 +734,23 @@ export async function GET(req: NextRequest) {
       andFilters.push({ status: { in: requestedStatuses as any } });
     }
 
+    if (requestedDriverIds.length > 0) {
+      andFilters.push({
+        OR: [
+          { assignedToId: { in: requestedDriverIds } },
+          {
+            delivery: {
+              is: {
+                agent: {
+                  userId: { in: requestedDriverIds },
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
     if (search) {
       andFilters.push({
         OR: [
@@ -782,6 +807,11 @@ export async function GET(req: NextRequest) {
           },
           delivery: {
             include: {
+              agent: {
+                select: {
+                  userId: true,
+                },
+              },
               timeSlot: {
                 select: {
                   date: true,
@@ -969,10 +999,11 @@ export async function POST(req: NextRequest) {
       ? "CONFIRMED"
       : (requestedStatus || "PENDING");
 
-    const isInitiallyDriverReserved = assignedDriverId
-      && DRIVER_RESERVED_STATUSES.includes(initialStatus as typeof DRIVER_RESERVED_STATUSES[number]);
+    const isInitiallyReserved = assignedDriverId
+      && DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES.includes(initialStatus as typeof DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES[number]);
+    const isInitiallyDelivered = initialStatus === "DELIVERED";
 
-    if (isInitiallyDriverReserved) {
+    if (isInitiallyReserved || isInitiallyDelivered) {
       await ensureDriverHasStock(
         assignedDriverId,
         computedItems.map((item) => ({
@@ -983,7 +1014,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const isInitiallyDelivered = initialStatus === "DELIVERED";
     const order = await prisma.$transaction(async (tx) => {
       const createdOrder = await tx.order.create({
         data: {
@@ -1028,7 +1058,7 @@ export async function POST(req: NextRequest) {
                     newValue: assignedDriver.name,
                   }]
                 : []),
-              ...(isInitiallyDriverReserved
+              ...(isInitiallyDelivered
                 ? [{
                     userId: session.user.id,
                     action: "DRIVER_STOCK_DEDUCTED",
@@ -1115,7 +1145,7 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      if (isInitiallyDriverReserved || isInitiallyDelivered) {
+      if (isInitiallyDelivered) {
         const requiredByProduct = new Map<string, { qty: number; name: string }>();
         for (const item of computedItems) {
           const previous = requiredByProduct.get(item.productId);

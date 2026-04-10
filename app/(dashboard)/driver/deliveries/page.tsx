@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { usePathname } from "next/navigation";
 import Header from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
+import Modal from "@/components/ui/Modal";
 import { formatPrice } from "@/lib/utils";
 
 interface DeliveryItem {
@@ -60,21 +63,40 @@ const STATUS_CLASSES: Record<string, string> = {
   RETURNED: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
-function formatDateKey(value: string | null | undefined) {
-  if (!value) return "-";
-  const d = new Date(value);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function toInputDate(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
-function shiftDate(dateKey: string, dayDelta: number) {
-  const [y, m, d] = dateKey.split("-").map(Number);
-  const base = new Date(y, (m || 1) - 1, d || 1);
-  base.setDate(base.getDate() + dayDelta);
-  return toInputDate(base);
+function monthKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function parseMonthKey(value: string) {
+  const [y, m] = value.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, 1);
+}
+
+function shiftMonth(value: string, monthDelta: number) {
+  const base = parseMonthKey(value);
+  base.setMonth(base.getMonth() + monthDelta);
+  return monthKey(base);
+}
+
+function buildMonthDays(monthValue: string) {
+  const [y, m] = monthValue.split("-").map(Number);
+  const totalDays = new Date(y, m, 0).getDate();
+  const days: Array<{ key: string; day: number; weekday: string }> = [];
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = new Date(y, m - 1, day);
+    days.push({
+      key: toInputDate(date),
+      day,
+      weekday: new Intl.DateTimeFormat("en-US", { weekday: "narrow" }).format(date),
+    });
+  }
+
+  return days;
 }
 
 function getStatusOptions(currentStatus: string) {
@@ -161,15 +183,23 @@ function buildOrderCopyText(order: DeliveryOrder): string {
 }
 
 export default function DriverDeliveriesPage() {
+  const pathname = usePathname();
   const todayDate = useMemo(() => toInputDate(new Date()), []);
   const saveTimersRef = useRef<{ [orderId: string]: ReturnType<typeof setTimeout> }>({});
+  const dayStripRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingOrderId, setSavingOrderId] = useState("");
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState(todayDate);
+  const [visibleMonth, setVisibleMonth] = useState(todayDate.slice(0, 7));
   const [phoneSearch, setPhoneSearch] = useState("");
   const [statusTab, setStatusTab] = useState<DriverStatusTab>("ALL");
+  const [noteModalOrderId, setNoteModalOrderId] = useState("");
+  const [noteModalStatus, setNoteModalStatus] = useState<"RETURNED" | "CANCELLED" | "">("");
+  const [noteModalText, setNoteModalText] = useState("");
+  const [noteModalPrefix, setNoteModalPrefix] = useState("");
+  const [noteModalError, setNoteModalError] = useState("");
 
   const loadData = useCallback(async (dateKey?: string) => {
     setLoading(true);
@@ -208,6 +238,30 @@ export default function DriverDeliveriesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const selectedMonth = selectedDate.slice(0, 7);
+    if (selectedMonth !== visibleMonth) {
+      setVisibleMonth(selectedMonth);
+    }
+  }, [selectedDate, visibleMonth]);
+
+  useEffect(() => {
+    if (pathname !== "/driver/deliveries") return;
+
+    const today = toInputDate(new Date());
+    setSelectedDate(today);
+    setVisibleMonth(today.slice(0, 7));
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!dayStripRef.current) return;
+
+    const activeNode = dayStripRef.current.querySelector<HTMLButtonElement>(`button[data-day='${selectedDate}']`);
+    if (!activeNode) return;
+
+    activeNode.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [selectedDate, visibleMonth]);
+
   const getEffectiveStatus = useCallback((order: DeliveryOrder) => {
     return String(pendingStatuses[order.id] ?? order.status).toUpperCase();
   }, [pendingStatuses]);
@@ -235,6 +289,12 @@ export default function DriverDeliveriesPage() {
     return statusFiltered.filter((order) => order.customer.phone.includes(keyword));
   }, [orders, phoneSearch, statusTab, getEffectiveStatus]);
 
+  const monthDays = useMemo(() => buildMonthDays(visibleMonth), [visibleMonth]);
+  const visibleMonthLabel = useMemo(() => {
+    const date = parseMonthKey(visibleMonth);
+    return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(date);
+  }, [visibleMonth]);
+
   async function handleCopyOrderInfo(order: DeliveryOrder) {
     const text = buildOrderCopyText(order);
     try {
@@ -245,7 +305,23 @@ export default function DriverDeliveriesPage() {
     }
   }
 
-  async function saveStatus(orderId: string, targetStatus: string) {
+  function getAppendedNoteValue() {
+    if (!noteModalText.trim()) return "";
+
+    if (!noteModalPrefix) {
+      return noteModalText.trim();
+    }
+
+    if (noteModalText.startsWith(noteModalPrefix)) {
+      return noteModalText.slice(noteModalPrefix.length).trim();
+    }
+
+    return noteModalText.trim() === noteModalPrefix.trim()
+      ? ""
+      : noteModalText.trim();
+  }
+
+  async function saveStatus(orderId: string, targetStatus: string, appendNote?: string) {
     const current = orders.find((order) => order.id === orderId);
     if (!targetStatus || !current || targetStatus === current.status) return;
 
@@ -254,7 +330,10 @@ export default function DriverDeliveriesPage() {
       const response = await fetch(`/api/driver/deliveries/${orderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: targetStatus }),
+        body: JSON.stringify({
+          status: targetStatus,
+          ...(appendNote ? { appendNote } : {}),
+        }),
       });
       const json = await response.json();
 
@@ -272,7 +351,68 @@ export default function DriverDeliveriesPage() {
     }
   }
 
+  function closeNoteModal() {
+    const orderId = noteModalOrderId;
+    setNoteModalOrderId("");
+    setNoteModalStatus("");
+    setNoteModalText("");
+    setNoteModalPrefix("");
+    setNoteModalError("");
+
+    if (orderId) {
+      const current = orders.find((order) => order.id === orderId);
+      if (current) {
+        setPendingStatuses((prev) => ({ ...prev, [orderId]: current.status }));
+      }
+    }
+  }
+
+  function openNoteModal(order: DeliveryOrder, targetStatus: "RETURNED" | "CANCELLED") {
+    const previousNotes = order.notes?.trim() ?? "";
+    const prefix = previousNotes ? `${previousNotes},\n` : "";
+
+    setNoteModalOrderId(order.id);
+    setNoteModalStatus(targetStatus);
+    setNoteModalPrefix(prefix);
+    setNoteModalText(prefix);
+    setNoteModalError("");
+    setPendingStatuses((prev) => ({ ...prev, [order.id]: targetStatus }));
+  }
+
+  async function confirmNoteModalSave() {
+    const appendNote = getAppendedNoteValue();
+    if (!noteModalOrderId || !noteModalStatus) {
+      return;
+    }
+
+    if (!appendNote) {
+      setNoteModalError("Тайлбар заавал оруулна уу");
+      return;
+    }
+
+    const orderId = noteModalOrderId;
+    const targetStatus = noteModalStatus;
+
+    setNoteModalOrderId("");
+    setNoteModalStatus("");
+    setNoteModalText("");
+    setNoteModalPrefix("");
+    setNoteModalError("");
+
+    await saveStatus(orderId, targetStatus, appendNote);
+  }
+
   function scheduleStatusSave(orderId: string, targetStatus: string) {
+    const current = orders.find((order) => order.id === orderId);
+    if (!current || targetStatus === current.status) {
+      return;
+    }
+
+    if (targetStatus === "RETURNED" || targetStatus === "CANCELLED") {
+      openNoteModal(current, targetStatus);
+      return;
+    }
+
     setPendingStatuses((prev) => ({ ...prev, [orderId]: targetStatus }));
 
     const existingTimer = saveTimersRef.current[orderId];
@@ -288,25 +428,59 @@ export default function DriverDeliveriesPage() {
 
   return (
     <div>
-      <Header title="Миний хүргэлт" subtitle="Өөрт хуваарилагдсан хүргэлтүүд" showSearch={false} />
+      <Header title="Миний хүргэлт" showSearch={false} />
 
-      <div className="space-y-4 p-3 sm:space-y-5 sm:p-5">
+      <div className="space-y-3 p-2.5 sm:space-y-4 sm:p-4">
         <Card>
-          <div className="space-y-3 p-3 sm:p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <label htmlFor="driver-date" className="text-sm font-medium text-slate-600">Огноо</label>
-                <input
-                  id="driver-date"
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
-                />
+          <div className="space-y-2 p-2.5 sm:p-3">
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-1.5">
+                <div className="mb-1.5 flex items-center justify-between px-1">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMonth((prev) => shiftMonth(prev, -1))}
+                    className="rounded-md p-0.5 text-slate-600 hover:bg-white"
+                    aria-label="Өмнөх сар"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <p className="text-xs font-semibold text-slate-700 sm:text-sm">{visibleMonthLabel}</p>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMonth((prev) => shiftMonth(prev, 1))}
+                    className="rounded-md p-0.5 text-slate-600 hover:bg-white"
+                    aria-label="Дараах сар"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <div ref={dayStripRef} className="flex min-w-max items-center gap-1.5 px-1 pb-0.5">
+                    {monthDays.map((day) => {
+                      const isActive = day.key === selectedDate;
+                      return (
+                        <button
+                          key={day.key}
+                          data-day={day.key}
+                          type="button"
+                          onClick={() => setSelectedDate(day.key)}
+                          className={`flex h-11 w-9 flex-none flex-col items-center justify-center rounded-lg border text-center transition ${isActive
+                            ? "border-orange-500 bg-orange-500 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                            }`}
+                        >
+                          <span className="text-[9px] font-medium uppercase opacity-80">{day.weekday}</span>
+                          <span className="text-xs font-semibold">{day.day}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-1.5">
                 {DRIVER_STATUS_TABS.map((tab) => {
                   const isActive = statusTab === tab.value;
                   const tabStyle = TAB_STYLE_MAP[tab.value];
@@ -315,11 +489,11 @@ export default function DriverDeliveriesPage() {
                       key={tab.value}
                       type="button"
                       onClick={() => setStatusTab(tab.value)}
-                      className={`flex h-14 w-full flex-col items-center justify-center rounded-xl border text-center text-[11px] font-semibold leading-tight transition sm:h-16 sm:text-sm ${isActive ? `${tabStyle.active} shadow-sm` : `${tabStyle.inactive} hover:brightness-95`
+                      className={`flex h-11 w-full flex-col items-center justify-center rounded-lg border text-center text-[10px] font-semibold leading-tight transition sm:h-12 sm:text-xs ${isActive ? `${tabStyle.active} shadow-sm` : `${tabStyle.inactive} hover:brightness-95`
                         }`}
                     >
                       <span className="block w-full text-center">{tab.label}</span>
-                      <span className="mt-0.5 block w-full text-center text-[11px] font-bold sm:text-xs">{tabCounts[tab.value]}</span>
+                      <span className="mt-0.5 block w-full text-center text-[10px] font-bold">{tabCounts[tab.value]}</span>
                     </button>
                   );
                 })}
@@ -330,7 +504,7 @@ export default function DriverDeliveriesPage() {
               value={phoneSearch}
               onChange={(e) => setPhoneSearch(e.target.value)}
               placeholder="Утасны дугаар хайх"
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
+              className="h-9 w-full rounded-md border border-slate-200 px-2.5 text-xs text-slate-700 placeholder:text-xs"
             />
 
           </div>
@@ -350,41 +524,39 @@ export default function DriverDeliveriesPage() {
               const isPaymentReceived = order.paymentStatus === "PAID";
               const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
               return (
-                <div key={order.id} className="rounded-xl border border-slate-200 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs text-slate-500">{formatDateKey(order.effectiveDate ?? order.delivery?.timeSlot?.date ?? order.createdAt)}</p>
-                    </div>
-                  </div>
+                <div key={order.id} className="relative rounded-xl border border-slate-200 p-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyOrderInfo(order)}
+                    aria-label="Захиалгын мэдээлэл хуулах"
+                    className="absolute right-3 top-3 rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
 
-                  <div className="mt-2 text-sm text-slate-700">
+                  <div className="mt-2 border-b border-slate-100 pb-2 text-sm text-slate-700">
                     <div className="flex items-center gap-2">
-                      <a href={`tel:${order.customer.phone.replace(/\s+/g, "")}`} className="text-xs font-medium text-blue-600 underline underline-offset-2">
+                      <a href={`tel:${order.customer.phone.replace(/\s+/g, "")}`} className="text-sm font-semibold text-blue-600 underline underline-offset-2">
                         {order.customer.phone}
                       </a>
-                      <button
-                        type="button"
-                        onClick={() => void handleCopyOrderInfo(order)}
-                        className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-50"
-                      >
-                        Хуулах
-                      </button>
                     </div>
-                    <p className="mt-1 text-xs text-slate-600">{order.shippingAddress || order.customer.address || "-"}</p>
-                    <p className="mt-1 text-xs text-slate-500">Тайлбар: {order.notes || "-"}</p>
+                    <p className="mt-1 text-sm text-slate-600">{order.shippingAddress || order.customer.address || "-"}</p>
+                    {order.notes?.trim() && (
+                      <p className="mt-1 whitespace-pre-line text-sm text-slate-500">Тайлбар: {order.notes}</p>
+                    )}
                   </div>
 
-                  <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  <div className="mt-2 border-b border-slate-100 pb-2 space-y-1 text-sm text-slate-600">
                     {order.items.map((item) => (
                       <div key={item.id} className="grid grid-cols-[1fr_auto_auto] gap-2">
-                        <p className="text-slate-700">{item.name}</p>
-                        <p className="text-slate-500">x{item.qty}</p>
-                        <p className="text-slate-500">{formatPrice(Number(item.unitPrice))}</p>
+                        <p className="font-medium text-slate-700">{item.name}</p>
+                        <p className="font-medium text-slate-500">x{item.qty}</p>
+                        <p className="font-medium text-slate-500">{formatPrice(Number(item.unitPrice))}</p>
                       </div>
                     ))}
                   </div>
 
-                  <div className="mt-2 text-right text-sm font-semibold text-slate-800">
+                  <div className="mt-2 border-b border-slate-100 pb-2 text-right text-sm font-semibold text-slate-800">
                     Нийт дүн: {formatPrice(orderTotal)}
                     {isPaymentReceived && <span className="ml-2 text-emerald-700">(Тооцоо орсон)</span>}
                   </div>
@@ -473,7 +645,7 @@ export default function DriverDeliveriesPage() {
                         </div>
                       </td>
                       <td className="p-3 text-xs text-slate-600">{order.shippingAddress || order.customer.address || "-"}</td>
-                      <td className="p-3 text-xs text-slate-600">{order.notes || "-"}</td>
+                      <td className="p-3 text-xs whitespace-pre-wrap text-slate-600">{order.notes?.trim() || ""}</td>
                       <td className="p-3">
                         <select
                           value={nextStatus}
@@ -497,6 +669,52 @@ export default function DriverDeliveriesPage() {
           </div>
         </Card>
       </div>
+
+      <Modal
+        isOpen={Boolean(noteModalOrderId && noteModalStatus)}
+        onClose={closeNoteModal}
+        title={noteModalStatus === "RETURNED" ? "Хойшлуулсан тайлбар" : "Цуцалсан тайлбар"}
+        size="sm"
+        footer={(
+          <>
+            <button
+              type="button"
+              onClick={closeNoteModal}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Болих
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmNoteModalSave()}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Хадгалах
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            {noteModalStatus === "RETURNED"
+              ? "Хойшлуулсан төлөв хадгалахын өмнө тайлбар оруулна уу."
+              : "Цуцалсан төлөв хадгалахын өмнө тайлбар оруулна уу."}
+          </p>
+          <textarea
+            value={noteModalText}
+            onChange={(e) => {
+              setNoteModalText(e.target.value);
+              if (noteModalError) {
+                setNoteModalError("");
+              }
+            }}
+            placeholder="Тайлбар бичнэ үү"
+            rows={5}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
+          />
+          {noteModalError && <p className="text-sm text-rose-600">{noteModalError}</p>}
+        </div>
+      </Modal>
     </div>
   );
 }

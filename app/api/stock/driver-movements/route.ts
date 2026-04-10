@@ -48,6 +48,48 @@ interface MovementEvent {
   removed: number;
 }
 
+function extractStockAuditMovement(
+  raw: string | null,
+  fallbackDriverId: string | null,
+): { driverId: string | null; items: Array<{ productId: string; qty: number }> } | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as
+      | Array<{ productId?: string; qty?: number }>
+      | { driverId?: string | null; items?: Array<{ productId?: string; qty?: number }> }
+      | null;
+
+    if (Array.isArray(parsed)) {
+      return {
+        driverId: fallbackDriverId,
+        items: parsed
+          .filter((item): item is { productId: string; qty: number } => Boolean(item?.productId) && Number.isFinite(Number(item?.qty)))
+          .map((item) => ({
+            productId: item.productId,
+            qty: Number(item.qty),
+          })),
+      };
+    }
+
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) {
+      return {
+        driverId: typeof parsed.driverId === "string" ? parsed.driverId : fallbackDriverId,
+        items: parsed.items
+          .filter((item): item is { productId: string; qty: number } => Boolean(item?.productId) && Number.isFinite(Number(item?.qty)))
+          .map((item) => ({
+            productId: item.productId,
+            qty: Number(item.qty),
+          })),
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -81,7 +123,7 @@ export async function GET(req: NextRequest) {
 
     const toEnd = toDayEnd(toStart);
 
-    const [driver, products, transfers, deliveredLatestLogs] = await Promise.all([
+    const [driver, products, transfers, stockAuditLogs] = await Promise.all([
       prisma.user.findFirst({
         where: { id: driverId, role: "DRIVER", isActive: true },
         select: { id: true, name: true },
@@ -108,19 +150,20 @@ export async function GET(req: NextRequest) {
           },
         },
       }),
-      prisma.orderAuditLog.groupBy({
-        by: ["orderId"],
+      prisma.orderAuditLog.findMany({
         where: {
-          action: "STATUS_CHANGED",
-          newValue: "DELIVERED",
+          action: { in: ["DRIVER_STOCK_DEDUCTED", "DRIVER_STOCK_RESTORED"] },
           createdAt: { lte: toEnd },
-          order: {
-            assignedToId: driverId,
-            status: "DELIVERED",
-          },
+          OR: [
+            { userId: driverId },
+            { newValue: { contains: driverId } },
+          ],
         },
-        _max: {
+        select: {
+          action: true,
+          newValue: true,
           createdAt: true,
+          userId: true,
         },
       }),
     ]);
@@ -155,56 +198,23 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const deliveredLogConditions = deliveredLatestLogs
-      .map((entry) => {
-        if (!entry._max.createdAt) return null;
-        return {
-          orderId: entry.orderId,
-          createdAt: entry._max.createdAt,
-        };
-      })
-      .filter((entry): entry is { orderId: string; createdAt: Date } => entry !== null);
-
-    const deliveredLogs = deliveredLogConditions.length > 0
-      ? await prisma.orderAuditLog.findMany({
-          where: {
-            action: "STATUS_CHANGED",
-            newValue: "DELIVERED",
-            OR: deliveredLogConditions,
-          },
-          select: {
-            orderId: true,
-            createdAt: true,
-            order: {
-              select: {
-                items: {
-                  select: {
-                    productId: true,
-                    qty: true,
-                  },
-                },
-              },
-            },
-          },
-        })
-      : [];
-
-    const countedDeliveredOrders = new Set<string>();
-    for (const log of deliveredLogs) {
-      if (countedDeliveredOrders.has(log.orderId)) {
+    for (const log of stockAuditLogs) {
+      const parsed = extractStockAuditMovement(log.newValue, log.userId ?? null);
+      if (!parsed?.driverId || parsed.driverId !== driverId || parsed.items.length === 0) {
         continue;
       }
-      countedDeliveredOrders.add(log.orderId);
 
-      for (const item of log.order.items) {
+      const sign = log.action === "DRIVER_STOCK_DEDUCTED" ? -1 : 1;
+
+      for (const item of parsed.items) {
         if (!item.productId || !Number.isFinite(item.qty) || item.qty <= 0) continue;
 
         events.push({
           createdAt: log.createdAt,
           productId: item.productId,
-          delta: -item.qty,
-          added: 0,
-          removed: item.qty,
+          delta: sign * item.qty,
+          added: sign > 0 ? item.qty : 0,
+          removed: sign < 0 ? item.qty : 0,
         });
       }
     }

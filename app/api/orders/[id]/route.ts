@@ -7,8 +7,9 @@ interface Params {
   id: string;
 }
 
-const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "DELIVERED"]);
-const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED"] as const;
+const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "RETURNED", "DELIVERED"]);
+const DRIVER_STOCK_CONSUMING_STATUSES = new Set(["DELIVERED"]);
+const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
 
 async function ensureDriverHasStock(
   driverId: string,
@@ -66,9 +67,9 @@ async function ensureDriverHasStock(
   const exceededProducts: string[] = [];
 
   for (const entry of requiredEntries) {
-    const availableQty = stockByProduct.get(entry.productId) ?? 0;
+    const totalQty = stockByProduct.get(entry.productId) ?? 0;
     const reservedQty = reservedByProduct.get(entry.productId) ?? 0;
-    const totalQty = availableQty + reservedQty;
+    const availableQty = totalQty - reservedQty;
 
     if (totalQty <= 0) {
       outOfStockProducts.push(entry.name);
@@ -316,7 +317,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         // Check stock for the new driver BEFORE updating status
         if (
           nextDriverId
-          && ["PENDING", "CONFIRMED", "SHIPPED"].includes(String(order.status))
+          && ["PENDING", "CONFIRMED", "SHIPPED", "RETURNED"].includes(String(order.status))
           && !Array.isArray(body.items)
         ) {
           await ensureDriverHasStock(nextDriverId, nextItemsForStockValidation);
@@ -326,7 +327,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           nextStatus = "CONFIRMED";
         }
 
-        if (!nextDriverId && ["CONFIRMED", "SHIPPED"].includes(String(nextStatus))) {
+        if (!nextDriverId && ["CONFIRMED", "SHIPPED", "RETURNED"].includes(String(nextStatus))) {
           nextStatus = "PENDING";
         }
 
@@ -550,10 +551,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     const oldDriverName = order.assignedTo?.name ?? null;
     const wasDriverReserved = Boolean(oldDriverId) && DRIVER_RESERVED_STATUSES.has(String(order.status));
     const willDriverReserved = Boolean(targetDriverId) && DRIVER_RESERVED_STATUSES.has(String(nextStatus));
+    const wasDriverStockConsumed = Boolean(oldDriverId) && DRIVER_STOCK_CONSUMING_STATUSES.has(String(order.status));
+    const willDriverStockConsumed = Boolean(targetDriverId) && DRIVER_STOCK_CONSUMING_STATUSES.has(String(nextStatus));
 
     const isDriverReassignmentWhileReserved =
       wasDriverReserved
       && willDriverReserved
+      && oldDriverId !== targetDriverId;
+
+    const isDriverReassignmentWhileStockConsumed =
+      wasDriverStockConsumed
+      && willDriverStockConsumed
       && oldDriverId !== targetDriverId;
 
     const reserveDeltaOnSameDriver =
@@ -566,6 +574,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     const restoreDeltaOnSameDriver =
       wasDriverReserved
       && willDriverReserved
+      && oldDriverId === targetDriverId
+      ? buildPositiveStockDelta(nextItemsForStockValidation, currentItemsForStock)
+      : [];
+
+    const consumeDeltaOnSameDriver =
+      wasDriverStockConsumed
+      && willDriverStockConsumed
+      && oldDriverId === targetDriverId
+      ? buildPositiveStockDelta(currentItemsForStock, nextItemsForStockValidation)
+      : [];
+
+    const restoreConsumedDeltaOnSameDriver =
+      wasDriverStockConsumed
+      && willDriverStockConsumed
       && oldDriverId === targetDriverId
       ? buildPositiveStockDelta(nextItemsForStockValidation, currentItemsForStock)
       : [];
@@ -588,7 +610,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       }
     }
 
-    if (!wasDriverReserved && willDriverReserved && targetDriverId) {
+    if (!wasDriverStockConsumed && willDriverStockConsumed && targetDriverId) {
       auditChanges.push({
         userId: session.user.id,
         action: "DRIVER_STOCK_DEDUCTED",
@@ -601,7 +623,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       });
     }
 
-    if (wasDriverReserved && !willDriverReserved && oldDriverId) {
+    if (wasDriverStockConsumed && !willDriverStockConsumed && oldDriverId) {
       auditChanges.push({
         userId: session.user.id,
         action: "DRIVER_STOCK_RESTORED",
@@ -614,7 +636,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       });
     }
 
-    if (isDriverReassignmentWhileReserved && oldDriverId && targetDriverId) {
+    if (isDriverReassignmentWhileStockConsumed && oldDriverId && targetDriverId) {
       auditChanges.push({
         userId: session.user.id,
         action: "DRIVER_STOCK_RESTORED",
@@ -638,29 +660,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       });
     }
 
-    if (wasDriverReserved && willDriverReserved && oldDriverId === targetDriverId && targetDriverId) {
-      if (reserveDeltaOnSameDriver.length > 0) {
+    if (wasDriverStockConsumed && willDriverStockConsumed && oldDriverId === targetDriverId && targetDriverId) {
+      if (consumeDeltaOnSameDriver.length > 0) {
         auditChanges.push({
           userId: session.user.id,
           action: "DRIVER_STOCK_DEDUCTED",
           oldValue: null,
-          newValue: buildStockAuditPayload(reserveDeltaOnSameDriver, {
+          newValue: buildStockAuditPayload(consumeDeltaOnSameDriver, {
             driverId: targetDriverId,
             driverName: targetDriverName,
-            reason: "reserved_items_changed",
+            reason: "delivered_items_changed",
           }),
         });
       }
 
-      if (restoreDeltaOnSameDriver.length > 0) {
+      if (restoreConsumedDeltaOnSameDriver.length > 0) {
         auditChanges.push({
           userId: session.user.id,
           action: "DRIVER_STOCK_RESTORED",
           oldValue: null,
-          newValue: buildStockAuditPayload(restoreDeltaOnSameDriver, {
+          newValue: buildStockAuditPayload(restoreConsumedDeltaOnSameDriver, {
             driverId: targetDriverId,
             driverName: targetDriverName,
-            reason: "reserved_items_changed",
+            reason: "delivered_items_changed",
           }),
         });
       }
@@ -724,7 +746,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         }
       }
 
-      if (!wasDriverReserved && willDriverReserved && targetDriverId) {
+      if (!wasDriverStockConsumed && willDriverStockConsumed && targetDriverId) {
         const requiredByProduct = new Map<string, { qty: number; name: string }>();
         for (const item of nextItemsForStockValidation) {
           const previous = requiredByProduct.get(item.productId);
@@ -749,7 +771,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         }
       }
 
-      if (wasDriverReserved && !willDriverReserved && oldDriverId) {
+      if (wasDriverStockConsumed && !willDriverStockConsumed && oldDriverId) {
         const restoredByProduct = new Map<string, { qty: number; name: string }>();
         for (const item of currentItemsForStock) {
           const previous = restoredByProduct.get(item.productId);
@@ -779,7 +801,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         }
       }
 
-      if (isDriverReassignmentWhileReserved && oldDriverId && targetDriverId) {
+      if (isDriverReassignmentWhileStockConsumed && oldDriverId && targetDriverId) {
         const oldDriverRestore = new Map<string, { qty: number; name: string }>();
         for (const item of currentItemsForStock) {
           const previous = oldDriverRestore.get(item.productId);
@@ -835,8 +857,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         }
       }
 
-      if (wasDriverReserved && willDriverReserved && oldDriverId === targetDriverId && targetDriverId) {
-        for (const item of reserveDeltaOnSameDriver) {
+      if (wasDriverStockConsumed && willDriverStockConsumed && oldDriverId === targetDriverId && targetDriverId) {
+        for (const item of consumeDeltaOnSameDriver) {
           const updateResult = await tx.driverStock.updateMany({
             where: {
               driverId: targetDriverId,
@@ -853,7 +875,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           }
         }
 
-        for (const item of restoreDeltaOnSameDriver) {
+        for (const item of restoreConsumedDeltaOnSameDriver) {
           await tx.driverStock.upsert({
             where: {
               driverId_productId: {

@@ -136,12 +136,19 @@ function getEffectiveDeliveryDate(order: {
   updatedAt: Date;
   delivery: { timeSlot: { date: Date } | null } | null;
   auditLogs: Array<{ newValue: string | null; createdAt: Date }>;
-}) {
+}, todayStart: Date) {
   const status = String(order.status).toUpperCase();
   const slotDate = order.delivery?.timeSlot?.date ?? null;
+  const tomorrowStart = nextDay(todayStart);
 
   if (status === "RETURNED") {
-    return slotDate ?? getLatestStatusChangeAt(order.auditLogs, status) ?? order.updatedAt;
+    const returnedAt = getLatestStatusChangeAt(order.auditLogs, status);
+
+    if (returnedAt && returnedAt >= todayStart && returnedAt < tomorrowStart) {
+      return returnedAt;
+    }
+
+    return slotDate ?? returnedAt ?? order.updatedAt;
   }
 
   if (status === "DELIVERED" || status === "CANCELLED") {
@@ -277,7 +284,7 @@ export async function GET(req: NextRequest) {
 
     const deliveries = rawDeliveries
       .map((order) => {
-        const effectiveDate = getEffectiveDeliveryDate(order);
+        const effectiveDate = getEffectiveDeliveryDate(order, todayStart);
 
         return {
           ...order,
