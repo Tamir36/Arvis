@@ -301,8 +301,12 @@ function formatItemChangeSummary(raw: string | null): string {
   return formatAuditItems(raw);
 }
 
-function getAuditLogTitle(action: string): string {
-  switch (action) {
+function getAuditLogTitle(log: OrderDetails["auditLogs"][number]): string {
+  if (log.action === "STATUS_CHANGED" && String(log.newValue ?? "").toUpperCase() === "CANCELLED") {
+    return "Цуцалсан";
+  }
+
+  switch (log.action) {
     case "CREATED":
       return "Захиалга бүртгэсэн";
     case "STATUS_CHANGED":
@@ -324,8 +328,22 @@ function getAuditLogTitle(action: string): string {
     case "ITEMS_CHANGED":
       return "Барааны жагсаалт шинэчилсэн";
     default:
-      return action;
+      return log.action;
   }
+}
+
+function shouldShowAuditLog(log: OrderDetails["auditLogs"][number]): boolean {
+  // Hide stock movement logs in order details history; status-change log is the source of truth.
+  if (log.action === "DRIVER_STOCK_DEDUCTED" || log.action === "DRIVER_STOCK_RESTORED") {
+    return false;
+  }
+
+  // Driver daily rollover is a system-maintenance event and should not clutter business-facing history.
+  if (log.action === "DELIVERY_DATE_ROLLED_OVER") {
+    return false;
+  }
+
+  return true;
 }
 
 function getAuditLogDetail(log: OrderDetails["auditLogs"][number]): string {
@@ -383,6 +401,23 @@ function autoResizeTextarea(el: HTMLTextAreaElement) {
 function getDriverOptionLabel(driver: DriverOption, index: number): string {
   const name = driver.name?.trim();
   return name || `Жолооч ${index + 1}`;
+}
+
+const DRIVER_NAME_COLOR_CLASSES = [
+  "border-stone-200 bg-stone-100",
+  "border-zinc-200 bg-zinc-100",
+  "border-neutral-200 bg-neutral-100",
+  "border-lime-200 bg-lime-100",
+  "border-teal-200 bg-teal-100",
+  "border-pink-200 bg-pink-100",
+] as const;
+
+function getDriverNameColorClass(driverId: string): string {
+  let hash = 0;
+  for (let i = 0; i < driverId.length; i += 1) {
+    hash = (hash * 31 + driverId.charCodeAt(i)) >>> 0;
+  }
+  return DRIVER_NAME_COLOR_CLASSES[hash % DRIVER_NAME_COLOR_CLASSES.length];
 }
 
 function createRegistrationItem(): RegistrationItem {
@@ -502,6 +537,7 @@ export default function OperatorOrdersPage() {
   const latestFetchRequestRef = useRef(0);
   const fetchAbortRef = useRef<AbortController | null>(null);
   const didLoadMetaRef = useRef(false);
+  const didInitFilterDefaultsRef = useRef(false);
   const detailsCacheRef = useRef<Record<string, OrderDetails>>({});
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [isDriverDropdownOpen, setIsDriverDropdownOpen] = useState(false);
@@ -708,6 +744,11 @@ export default function OperatorOrdersPage() {
 
         setProducts(parsedProducts);
         setDrivers(parsedDrivers);
+        if (!didInitFilterDefaultsRef.current) {
+          setDriverFilter(parsedDrivers.map((driver: DriverOption) => driver.id));
+          setStatusFilter(STATUS_OPTIONS.map((option) => option.value));
+          didInitFilterDefaultsRef.current = true;
+        }
         didLoadMetaRef.current = true;
       }
     } catch (error) {
@@ -1105,8 +1146,8 @@ export default function OperatorOrdersPage() {
     setPhoneSearch("");
     setAddressSearch("");
     setProductSearch("");
-    setDriverFilter([]);
-    setStatusFilter([]);
+    setDriverFilter(drivers.map((driver) => driver.id));
+    setStatusFilter(STATUS_OPTIONS.map((option) => option.value));
     setRegisteredProductFilter([]);
   };
 
@@ -1817,6 +1858,7 @@ export default function OperatorOrdersPage() {
                       ? order.items.map((item) => `- ${item.product.name} x${item.qty}`).join("\n")
                       : "-";
                     const nextStatus = pendingStatuses[order.id] ?? order.status;
+                    const selectedDriverId = pendingDriverIds[order.id] ?? order.assignedTo?.id ?? "";
                     const todayLocal = getTodayLocal();
                     const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
                     const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
@@ -1850,7 +1892,10 @@ export default function OperatorOrdersPage() {
                               const currentStatus = pendingStatuses[order.id] ?? order.status;
                               handleSaveRowWithValues(order.id, currentStatus, newDriverId);
                             }}
-                            className={INPUT_CLASS}
+                            className={`h-8 w-full rounded-full border px-2 py-0.5 text-xs font-semibold text-slate-800 ${selectedDriverId
+                              ? getDriverNameColorClass(selectedDriverId)
+                              : "border-slate-200 bg-white"
+                              }`}
                             disabled={savingRowId === order.id}
                           >
                             <option value="">Сонгох</option>
@@ -2039,7 +2084,11 @@ export default function OperatorOrdersPage() {
                         className={`${INPUT_CLASS} min-h-[52px] resize-y whitespace-pre-wrap break-words`}
                       />
                     </label>
+                  </div>
+                </div>
 
+                <div className="rounded-md border border-slate-300 bg-white p-2">
+                  <div className="space-y-1.5">
                     <label className="block space-y-1">
                       <span className="text-xs font-medium uppercase tracking-wide text-slate-500">Тайлбар</span>
                       <textarea
@@ -2062,7 +2111,7 @@ export default function OperatorOrdersPage() {
                     </Button>
                   </div>
 
-                  <div className="px-2 py-1.5">
+                  <div className="px-0 py-1.5">
                     <div className="space-y-0.5">
                       <div className="grid grid-cols-[minmax(0,1fr)_56px_90px_90px_34px] gap-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         <span>Бараа</span>
@@ -2164,15 +2213,15 @@ export default function OperatorOrdersPage() {
 
               <div className="rounded-md border border-slate-300 bg-white p-2.5">
                 <h4 className="mb-2 text-sm font-semibold text-slate-800">Өөрчлөлтийн түүх</h4>
-                {openDetails.auditLogs.length === 0 ? (
+                {openDetails.auditLogs.filter(shouldShowAuditLog).length === 0 ? (
                   <div className="rounded-md border border-slate-300 bg-slate-50 px-2.5 py-3 text-sm text-slate-500">Log байхгүй</div>
                 ) : (
                   <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-                    {openDetails.auditLogs.map((log) => (
+                    {openDetails.auditLogs.filter(shouldShowAuditLog).map((log) => (
                       <div key={log.id} className="rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2">
                         <div className="grid grid-cols-[150px_1fr_auto] items-start gap-2 text-xs">
                           <span className="text-slate-500">{formatDateTime(log.createdAt)}</span>
-                          <span className="font-semibold text-slate-800">{getAuditLogTitle(log.action)}</span>
+                          <span className="font-semibold text-slate-800">{getAuditLogTitle(log)}</span>
                           <span className="text-right text-slate-600">{log.user?.name ?? "system"}</span>
                         </div>
                         <div className="mt-1.5 text-sm text-slate-700 whitespace-pre-wrap break-words">{getAuditLogDetail(log)}</div>

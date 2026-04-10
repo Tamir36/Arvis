@@ -117,11 +117,10 @@ export default function DriverDashboard() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <SummaryCard label="Нийт захиалга" value={group?.totalOrders ?? 0} color="slate" />
           <SummaryCard label="Хүргэсэн" value={group?.delivered ?? 0} color="green" />
           <SummaryCard label="Цуцалсан" value={group?.cancelled ?? 0} color="red" />
-          <SummaryCard label="Хойшлуулсан" value={group?.returned ?? 0} color="orange" />
         </div>
 
         {isLoading ? (
@@ -159,41 +158,49 @@ export default function DriverDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {group.orders.map((order, idx) => (
-                    <tr key={order.orderId} className="hover:bg-slate-50/50 transition-colors align-top">
-                      <td className="px-4 py-3 text-center text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-slate-700">
-                          {new Date(order.createdAt).toLocaleDateString("mn-MN")}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{order.customerPhone}</td>
-                      <td className="px-4 py-3 text-slate-600 min-w-[260px]">
-                        {order.items.length === 0 ? (
-                          <span className="text-slate-300">-</span>
-                        ) : (
-                          order.items.map((it) => (
-                            <p key={it.id}>
-                              {it.name} ×{it.qty}
-                            </p>
-                          ))
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium ${STATUS_COLOR[order.status] ?? "bg-slate-100 text-slate-600"}`}>
-                          {STATUS_LABEL[order.status] ?? order.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium ${order.paymentStatus === "PAID" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                          {PAYMENT_LABEL[order.paymentStatus] ?? order.paymentStatus}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-700">{formatPrice(order.total)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-violet-600">{formatPrice(order.driverFee)}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatPrice(order.companyAmount)}</td>
+                  {group.orders.filter((order) => order.status === "DELIVERED").length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-4 py-10 text-center text-slate-400">Хүргэсэн захиалга алга байна</td>
                     </tr>
-                  ))}
+                  ) : (
+                    group.orders
+                      .filter((order) => order.status === "DELIVERED")
+                      .map((order, idx) => (
+                        <tr key={order.orderId} className="hover:bg-slate-50/50 transition-colors align-top">
+                          <td className="px-4 py-3 text-center text-slate-400">{idx + 1}</td>
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-slate-700">
+                              {new Date(order.createdAt).toLocaleDateString("mn-MN")}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">{order.customerPhone}</td>
+                          <td className="px-4 py-3 text-slate-600 min-w-[260px]">
+                            {order.items.length === 0 ? (
+                              <span className="text-slate-300">-</span>
+                            ) : (
+                              order.items.map((it) => (
+                                <p key={it.id}>
+                                  {it.name} ×{it.qty}
+                                </p>
+                              ))
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium ${STATUS_COLOR[order.status] ?? "bg-slate-100 text-slate-600"}`}>
+                              {STATUS_LABEL[order.status] ?? order.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium ${order.paymentStatus === "PAID" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                              {PAYMENT_LABEL[order.paymentStatus] ?? order.paymentStatus}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-slate-700">{formatPrice(order.total)}</td>
+                          <td className="px-4 py-3 text-right font-medium text-violet-600">{formatPrice(order.driverFee)}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatPrice(order.companyAmount)}</td>
+                        </tr>
+                      ))
+                  )}
                 </tbody>
                 <tfoot>
                   <tr className="bg-slate-50 border-t border-slate-200">
@@ -238,7 +245,7 @@ function SummaryCard({
   };
 
   return (
-    <div className={`w-[150px] rounded-xl p-2.5 ${colors[color]}`}>
+    <div className={`w-full rounded-xl p-2.5 text-center ${colors[color]}`}>
       <p className="text-[11px] font-medium opacity-70 leading-tight">{label}</p>
       <p className="text-lg font-bold mt-0.5 leading-tight">{value}</p>
     </div>

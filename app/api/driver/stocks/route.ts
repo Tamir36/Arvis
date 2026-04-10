@@ -219,21 +219,36 @@ export async function GET() {
       }),
     ]);
 
+    const hasDeliveredDeductionByOrder = new Set<string>();
+    for (const log of stockHistory) {
+      if (log.action !== "DRIVER_STOCK_DEDUCTED") continue;
+      const payload = parseAuditPayload(log.newValue);
+      const reason = String(payload.reason ?? "").toLowerCase();
+      if (reason === "reserved" || reason === "reserved_items_changed") continue;
+      hasDeliveredDeductionByOrder.add(log.order.id);
+    }
+
     const orderMovements = stockHistory
       .map<DriverMovement | null>((log) => {
         const payload = parseAuditPayload(log.newValue);
         const items = payload.items;
         const currentStatus = String(log.order.status ?? "").toUpperCase();
+        const reason = String(payload.reason ?? "").toLowerCase();
 
-        const isAssignedReserveLog =
+        const isAssignedOrPostponedReserveLog =
           log.action === "DRIVER_STOCK_DEDUCTED"
-          && (payload.reason === "reserved" || payload.reason === "reserved_items_changed");
+          && (reason === "reserved" || reason === "reserved_items_changed");
 
-        const isReturnedReleaseLog =
+        const isPostponedRestoreLog =
           log.action === "DRIVER_STOCK_RESTORED"
-          && (payload.reason === "released" || currentStatus === "RETURNED");
+          && (reason === "released" || currentStatus === "RETURNED");
 
-        if (isAssignedReserveLog || isReturnedReleaseLog) {
+        const isCancelledRestoreWithoutDelivered =
+          log.action === "DRIVER_STOCK_RESTORED"
+          && reason === "cancelled"
+          && !hasDeliveredDeductionByOrder.has(log.order.id);
+
+        if (isAssignedOrPostponedReserveLog || isPostponedRestoreLog || isCancelledRestoreWithoutDelivered) {
           return null;
         }
 
@@ -247,10 +262,10 @@ export async function GET() {
           direction: log.action === "DRIVER_STOCK_DEDUCTED" ? "OUT" : "IN",
           reason:
             log.action === "DRIVER_STOCK_DEDUCTED"
-              ? "Борлуулсан"
-              : payload.reason === "cancelled" || log.order.status === "CANCELLED"
+              ? "Хүргэсэн"
+              : reason === "cancelled" || log.order.status === "CANCELLED"
                 ? "Цуцалсан тул буцаан нэмсэн"
-                : payload.reason === "driver_reassigned"
+                : reason === "driver_reassigned"
                   ? "Жолооч солигдсон тул буцаан нэмсэн"
                   : "Буцаан нэмсэн",
           reference: log.order.orderNumber,

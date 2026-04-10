@@ -46,7 +46,17 @@ function getDayKey(value: string | null | undefined) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-const HIDDEN_REFERENCES = new Set(["MV-1774429313193", "ORD-2026-70987", "MV-1774442818244"]);
+function shouldShowReference(row: StockMovementRow): boolean {
+  if (row.source === "ORDER") {
+    return false;
+  }
+
+  if (row.source === "TRANSFER" && row.reason === "Агуулахаас авсан") {
+    return false;
+  }
+
+  return true;
+}
 
 export default function DriverStockPage() {
   const [loading, setLoading] = useState(true);
@@ -142,38 +152,18 @@ export default function DriverStockPage() {
             <CardTitle>Одоогийн үлдэгдэл</CardTitle>
           </CardHeader>
 
-          <div className="space-y-2 px-3 pb-3 sm:hidden">
-            {!loading && stocks.length === 0 && <p className="text-sm text-slate-400">Үлдэгдлийн мэдээлэл алга</p>}
-            {stocks.map((row) => (
-              <div key={row.id} className="rounded-xl border border-slate-200 p-3">
-                <p className="text-sm font-medium text-slate-700">{row.product.name}</p>
-                <p className="mt-1 text-lg font-semibold text-slate-900">{Number(row.quantity).toLocaleString("mn-MN")} ш</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-left text-xs font-semibold text-slate-500">
-                  <th className="p-3">Бараа</th>
-                  <th className="p-3">Үлдэгдэл</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {stocks.length === 0 && (
-                  <tr>
-                    <td colSpan={2} className="p-6 text-center text-slate-400">Үлдэгдлийн мэдээлэл алга</td>
-                  </tr>
-                )}
+          <div className="px-3 pb-3">
+            {!loading && stocks.length === 0 ? (
+              <p className="text-sm text-slate-400">Үлдэгдлийн мэдээлэл алга</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
                 {stocks.map((row) => (
-                  <tr key={row.id}>
-                    <td className="p-3 text-slate-700">{row.product.name}</td>
-                    <td className="p-3 font-semibold text-slate-800">{Number(row.quantity).toLocaleString("mn-MN")}</td>
-                  </tr>
+                  <li key={row.id} className="py-2 text-sm text-slate-700">
+                    {row.product.name} - <span className="font-semibold text-slate-900">{Number(row.quantity).toLocaleString("mn-MN")} ш</span>
+                  </li>
                 ))}
-              </tbody>
-            </table>
+              </ul>
+            )}
           </div>
         </Card>
 
@@ -246,7 +236,7 @@ export default function DriverStockPage() {
                             </p>
                           </div>
                           <p className="text-sm font-medium text-slate-700">{row.reason}</p>
-                          {!HIDDEN_REFERENCES.has(row.reference) && <p className="text-xs text-slate-500">{row.reference}</p>}
+                          {shouldShowReference(row) && <p className="text-xs text-slate-500">{row.reference}</p>}
                           {row.orderPhone && <p className="text-xs text-slate-500">Утас: {row.orderPhone}</p>}
                           <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
                             {row.items.map((item, index) => (

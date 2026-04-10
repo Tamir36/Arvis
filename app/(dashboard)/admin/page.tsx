@@ -23,9 +23,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
+  BarChart,
+  Bar,
   Legend,
 } from "recharts";
 import { mn } from "@/locales/mn";
@@ -37,13 +36,26 @@ interface DashboardData {
   totalRevenue: number;
   recentOrders: any[];
   lowStockProducts: any[];
-  monthlyData: any[];
-  statusData: any[];
+  monthlyData: Array<{ day: string; revenue: number; totalOrders: number }>;
+  statusData: Array<{ day: string; PENDING: number; CONFIRMED: number; PACKED: number; SHIPPED: number; DELIVERED: number; CANCELLED: number; RETURNED: number }>;
+  selectedYear: number;
+  selectedMonth: number;
 }
 
-const STATUS_COLORS = ["#2563eb", "#f97316", "#10b981", "#8b5cf6", "#ef4444", "#6b7280", "#f59e0b"];
+const STATUS_META = [
+  { key: "PENDING", color: "#2563eb", label: "PENDING" },
+  { key: "CONFIRMED", color: "#f97316", label: "CONFIRMED" },
+  { key: "PACKED", color: "#a855f7", label: "PACKED" },
+  { key: "SHIPPED", color: "#0ea5e9", label: "SHIPPED" },
+  { key: "DELIVERED", color: "#10b981", label: "DELIVERED" },
+  { key: "CANCELLED", color: "#6b7280", label: "CANCELLED" },
+  { key: "RETURNED", color: "#ef4444", label: "RETURNED" },
+] as const;
 
 export default function AdminDashboard() {
+  const now = new Date();
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +63,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const response = await fetch("/api/dashboard/stats");
+        const response = await fetch(`/api/dashboard/stats?year=${selectedYear}&month=${selectedMonth}`);
         if (!response.ok) {
           throw new Error("Failed to fetch dashboard data");
         }
@@ -65,7 +77,7 @@ export default function AdminDashboard() {
     };
 
     fetchDashboardData();
-  }, []);
+  }, [selectedYear, selectedMonth]);
 
   if (loading) {
     return (
@@ -138,8 +150,27 @@ export default function AdminDashboard() {
           <Card className="xl:col-span-2">
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h3 className="text-base font-semibold text-slate-800">Сарын орлого</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Сүүлийн 6 сарын мэдээлэл</p>
+                <h3 className="text-base font-semibold text-slate-800">Сарын орлого (өдөр өдрөөр)</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Хүргэгдсэн төлөвтэй захиалгын дүн</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={2020}
+                  max={2100}
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value) || now.getFullYear())}
+                  className="h-8 w-24 rounded-lg border border-slate-200 px-2 text-sm text-slate-700"
+                />
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  className="h-8 w-28 rounded-lg border border-slate-200 px-2 text-sm text-slate-700"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                    <option key={month} value={month}>{month}-р сар</option>
+                  ))}
+                </select>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={220}>
@@ -151,7 +182,7 @@ export default function AdminDashboard() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} tickFormatter={(v) => `₮${(v / 1000).toFixed(0)}к`} />
                 <Tooltip
                   formatter={(v: number) => [formatPrice(v), "Орлого"]}
@@ -165,27 +196,20 @@ export default function AdminDashboard() {
           {/* Order status pie */}
           <Card>
             <div className="mb-4">
-              <h3 className="text-base font-semibold text-slate-800">Захиалгын статус</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Нийт байдал</p>
+              <h3 className="text-base font-semibold text-slate-800">Захиалгын статус (өдөр өдрөөр)</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Тухайн өдрийн нийт захиалга</p>
             </div>
             <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie
-                  data={data.statusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={55}
-                  outerRadius={85}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {data.statusData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={STATUS_COLORS[index % STATUS_COLORS.length]} />
-                  ))}
-                </Pie>
+              <BarChart data={data.statusData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                {STATUS_META.map((status) => (
+                  <Bar key={status.key} dataKey={status.key} stackId="status" fill={status.color} name={status.label} />
+                ))}
                 <Legend iconType="circle" iconSize={8} formatter={(v) => <span style={{ fontSize: 11, color: "#64748b" }}>{v}</span>} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }} />
-              </PieChart>
+              </BarChart>
             </ResponsiveContainer>
           </Card>
         </div>

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 const DELIVERY_FEE_PER_ORDER = 6000;
+const DRIVER_REPORT_TERMINAL_STATUSES = ["DELIVERED", "CANCELLED", "RETURNED"] as const;
 
 function parseDateKey(value: string | null): Date {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -31,7 +32,7 @@ function computeOrderAmounts(total: number, status: string, paymentStatus: strin
 
 export async function GET(request: Request) {
   const session = await auth();
-  if (!session || !["ADMIN", "DRIVER"].includes(session.user.role)) {
+  if (!session?.user?.id || !["ADMIN", "DRIVER"].includes(session.user.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -43,12 +44,32 @@ export async function GET(request: Request) {
 
   const dayStart = new Date(y, m, d, 0, 0, 0, 0);
   const dayEnd = new Date(y, m, d, 23, 59, 59, 999);
+  const role = String(session.user.role ?? "").toUpperCase();
 
-  // Fetch delivered orders first; day filtering is applied by the latest DELIVERED status-change timestamp.
+  // Fetch terminal orders first; day filtering is applied by the latest status-change timestamp for each order's current status.
   const orders = await prisma.order.findMany({
     where: {
-      assignedToId: { not: null },
-      status: "DELIVERED",
+      status: { in: [...DRIVER_REPORT_TERMINAL_STATUSES] },
+      ...(role === "DRIVER"
+        ? {
+            OR: [
+              { assignedToId: session.user.id },
+              {
+                delivery: {
+                  is: {
+                    agent: {
+                      is: {
+                        userId: session.user.id,
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {
+            assignedToId: { not: null },
+          }),
     },
     select: {
       id: true,
@@ -61,6 +82,20 @@ export async function GET(request: Request) {
       assignedToId: true,
       assignedTo: {
         select: { id: true, name: true },
+      },
+      delivery: {
+        select: {
+          agent: {
+            select: {
+              userId: true,
+              user: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
       },
       customer: {
         select: { name: true, phone: true },
@@ -77,14 +112,15 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "asc" },
   });
 
-  const deliveredLogs = orders.length > 0
+  const terminalLogs = orders.length > 0
     ? await prisma.orderAuditLog.findMany({
         where: {
           action: "STATUS_CHANGED",
-          newValue: "DELIVERED",
+          newValue: { in: [...DRIVER_REPORT_TERMINAL_STATUSES] },
           orderId: { in: orders.map((order) => order.id) },
         },
         select: {
+          newValue: true,
           orderId: true,
           createdAt: true,
         },
@@ -92,22 +128,27 @@ export async function GET(request: Request) {
       })
     : [];
 
-  const latestDeliveredAtMap = new Map<string, Date>();
-  for (const log of deliveredLogs) {
-    if (!latestDeliveredAtMap.has(log.orderId)) {
-      latestDeliveredAtMap.set(log.orderId, log.createdAt);
+  const latestTerminalAtByOrderStatus = new Map<string, Date>();
+  for (const log of terminalLogs) {
+    const status = String(log.newValue ?? "").toUpperCase();
+    const key = `${log.orderId}:${status}`;
+    if (!latestTerminalAtByOrderStatus.has(key)) {
+      latestTerminalAtByOrderStatus.set(key, log.createdAt);
     }
   }
 
   const filteredOrders = orders.filter((order) => {
-    const deliveredAt = latestDeliveredAtMap.get(order.id) ?? order.updatedAt;
-    return deliveredAt >= dayStart && deliveredAt <= dayEnd;
+    const currentStatus = String(order.status).toUpperCase();
+    const statusChangedAt = latestTerminalAtByOrderStatus.get(`${order.id}:${currentStatus}`) ?? order.updatedAt;
+    return statusChangedAt >= dayStart && statusChangedAt <= dayEnd;
   });
 
   filteredOrders.sort((a, b) => {
-    const aDeliveredAt = latestDeliveredAtMap.get(a.id) ?? a.updatedAt;
-    const bDeliveredAt = latestDeliveredAtMap.get(b.id) ?? b.updatedAt;
-    return aDeliveredAt.getTime() - bDeliveredAt.getTime();
+    const aStatus = String(a.status).toUpperCase();
+    const bStatus = String(b.status).toUpperCase();
+    const aStatusChangedAt = latestTerminalAtByOrderStatus.get(`${a.id}:${aStatus}`) ?? a.updatedAt;
+    const bStatusChangedAt = latestTerminalAtByOrderStatus.get(`${b.id}:${bStatus}`) ?? b.updatedAt;
+    return aStatusChangedAt.getTime() - bStatusChangedAt.getTime();
   });
 
   // Group by driver
@@ -147,13 +188,15 @@ export async function GET(request: Request) {
   >();
 
   for (const order of filteredOrders) {
-    if (!order.assignedToId || !order.assignedTo) continue;
+    const effectiveDriverId = order.assignedToId ?? order.delivery?.agent?.userId ?? null;
+    const effectiveDriverName = order.assignedTo?.name ?? order.delivery?.agent?.user?.name ?? "Жолооч";
+    if (!effectiveDriverId) continue;
 
-    const key = order.assignedToId;
+    const key = effectiveDriverId;
     if (!driverMap.has(key)) {
       driverMap.set(key, {
-        driverId: order.assignedToId,
-        driverName: order.assignedTo.name,
+        driverId: effectiveDriverId,
+        driverName: effectiveDriverName,
         totalOrders: 0,
         delivered: 0,
         cancelled: 0,
@@ -199,7 +242,7 @@ export async function GET(request: Request) {
       customerName: order.customer.name,
       customerPhone: order.customer.phone,
       createdAt: order.createdAt,
-      deliveredAt: (latestDeliveredAtMap.get(order.id) ?? order.updatedAt).toISOString(),
+      deliveredAt: (latestTerminalAtByOrderStatus.get(`${order.id}:${String(order.status).toUpperCase()}`) ?? order.updatedAt).toISOString(),
       items: order.items.map((it) => ({
         id: it.id,
         name: it.name,
