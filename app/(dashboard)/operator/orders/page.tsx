@@ -144,6 +144,7 @@ const STATUS_OPTIONS: Array<{ value: string; label: string; className: string }>
 
 const REGISTRATION_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "PENDING");
 const ORDER_LIMIT_OPTIONS = [200, 400, 600] as const;
+const UNASSIGNED_DRIVER_FILTER_VALUE = "__UNASSIGNED__";
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   UNPAID: "Төлөөгүй",
@@ -167,6 +168,10 @@ function getStatusClass(status: string): string {
 function getTodayLocal(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function getDefaultDriverFilter(drivers: DriverOption[]): string[] {
+  return [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)];
 }
 
 function displayDate(isoDate: string): string {
@@ -578,7 +583,9 @@ export default function OperatorOrdersPage() {
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const driverId = order.assignedTo?.id ?? order.delivery?.agent?.userId ?? "";
-      const matchesDriver = driverFilter.length === 0 || (driverId ? driverFilter.includes(driverId) : false);
+      const hasUnassignedDriverFilter = driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE);
+      const matchesDriver = driverFilter.length === 0
+        || (driverId ? driverFilter.includes(driverId) : hasUnassignedDriverFilter);
       const matchesStatus = statusFilter.length === 0 || statusFilter.includes(order.status);
       const matchesProduct = registeredProductFilter.length === 0 || order.items.some((item) => registeredProductFilter.includes(item.product.id));
       return matchesDriver && matchesStatus && matchesProduct;
@@ -596,6 +603,9 @@ export default function OperatorOrdersPage() {
   const driverFilterLabel = useMemo(() => {
     if (driverFilter.length === 0) return "Жолооч";
     if (driverFilter.length === 1) {
+      if (driverFilter[0] === UNASSIGNED_DRIVER_FILTER_VALUE) {
+        return "-";
+      }
       return drivers.find((driver) => driver.id === driverFilter[0])?.name ?? "Жолооч";
     }
     return `${driverFilter.length} жолооч сонгосон`;
@@ -677,7 +687,11 @@ export default function OperatorOrdersPage() {
       const params = new URLSearchParams({ limit: String(orderFetchLimit), includeCount: "0" });
       if (normalizedFilterFromDate) params.set("fromDate", normalizedFilterFromDate);
       if (normalizedFilterToDate) params.set("toDate", normalizedFilterToDate);
-      if (driverFilter.length > 0) params.set("driverIds", driverFilter.join(","));
+      const hasUnassignedDriverFilter = driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE);
+      const selectedDriverIds = driverFilter.filter((driverId) => driverId !== UNASSIGNED_DRIVER_FILTER_VALUE);
+      if (!hasUnassignedDriverFilter && selectedDriverIds.length > 0) {
+        params.set("driverIds", selectedDriverIds.join(","));
+      }
       if (statusFilter.length > 0) params.set("statuses", statusFilter.join(","));
       if (debouncedPhoneSearch.trim()) params.set("phone", debouncedPhoneSearch.trim());
       if (debouncedAddressSearch.trim()) params.set("address", debouncedAddressSearch.trim());
@@ -745,7 +759,7 @@ export default function OperatorOrdersPage() {
         setProducts(parsedProducts);
         setDrivers(parsedDrivers);
         if (!didInitFilterDefaultsRef.current) {
-          setDriverFilter(parsedDrivers.map((driver: DriverOption) => driver.id));
+          setDriverFilter(getDefaultDriverFilter(parsedDrivers));
           setStatusFilter(STATUS_OPTIONS.map((option) => option.value));
           didInitFilterDefaultsRef.current = true;
         }
@@ -1146,7 +1160,7 @@ export default function OperatorOrdersPage() {
     setPhoneSearch("");
     setAddressSearch("");
     setProductSearch("");
-    setDriverFilter(drivers.map((driver) => driver.id));
+    setDriverFilter(getDefaultDriverFilter(drivers));
     setStatusFilter(STATUS_OPTIONS.map((option) => option.value));
     setRegisteredProductFilter([]);
   };
@@ -1776,6 +1790,17 @@ export default function OperatorOrdersPage() {
 
                       {isDriverDropdownOpen && (
                         <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                          <button
+                            key={UNASSIGNED_DRIVER_FILTER_VALUE}
+                            type="button"
+                            onClick={() => toggleDriverFilter(UNASSIGNED_DRIVER_FILTER_VALUE)}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                          >
+                            <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE) ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                              <Check className="h-3 w-3" />
+                            </span>
+                            <span className="truncate">-</span>
+                          </button>
                           {drivers.map((driver, index) => {
                             const isSelected = driverFilter.includes(driver.id);
                             return (

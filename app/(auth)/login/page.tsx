@@ -83,8 +83,7 @@ export default function LoginPage() {
               {...register("identifier")}
               type="text"
               autoComplete="username"
-              placeholder="admin эсвэл admin@arvis.mn"
-              className={`w-full px-4 py-3 rounded-xl border text-slate-800 placeholder-slate-400 
+              className={`w-full px-4 py-3 rounded-xl border text-slate-800 
                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all
                 ${errors.identifier ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 hover:border-slate-300"}`}
             />
@@ -103,8 +102,7 @@ export default function LoginPage() {
                 {...register("password")}
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
-                placeholder="••••••••"
-                className={`w-full px-4 py-3 pr-12 rounded-xl border text-slate-800 placeholder-slate-400
+                className={`w-full px-4 py-3 pr-12 rounded-xl border text-slate-800
                   focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all
                   ${errors.password ? "border-red-300 bg-red-50" : "border-slate-200 bg-slate-50 hover:border-slate-300"}`}
               />
