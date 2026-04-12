@@ -16,8 +16,76 @@ interface DriverAssignmentEmailInput {
 let transporterCache: nodemailer.Transporter | null = null;
 let transporterInitialized = false;
 
+interface MailerDiagnostics {
+  configured: boolean;
+  missingKeys: string[];
+  host: string;
+  port: number;
+  secure: boolean;
+  hasQuotedHost: boolean;
+  hasQuotedUser: boolean;
+  hasQuotedPass: boolean;
+  hasQuotedFrom: boolean;
+  userMasked: string;
+  fromMasked: string;
+}
+
 function toBool(value: string | undefined): boolean {
   return String(value ?? "").toLowerCase() === "true";
+}
+
+function stripWrappingQuotes(value: string | undefined): string {
+  const text = String(value ?? "").trim();
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    return text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+function hasWrappingQuotes(value: string | undefined): boolean {
+  const text = String(value ?? "").trim();
+  return (text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"));
+}
+
+function maskEmail(value: string): string {
+  const text = value.trim();
+  const at = text.indexOf("@");
+  if (at <= 1) return text ? "***" : "";
+  return `${text.slice(0, 2)}***${text.slice(at)}`;
+}
+
+export function getMailerDiagnostics(): MailerDiagnostics {
+  const rawHost = process.env.SMTP_HOST;
+  const rawUser = process.env.SMTP_USER;
+  const rawPass = process.env.SMTP_PASS;
+  const rawFrom = process.env.MAIL_FROM ?? process.env.SMTP_USER;
+  const host = stripWrappingQuotes(rawHost);
+  const user = stripWrappingQuotes(rawUser);
+  const pass = stripWrappingQuotes(rawPass);
+  const from = stripWrappingQuotes(rawFrom);
+  const port = Number(stripWrappingQuotes(process.env.SMTP_PORT ?? "587"));
+  const secure = toBool(stripWrappingQuotes(process.env.SMTP_SECURE));
+
+  const missingKeys: string[] = [];
+  if (!host) missingKeys.push("SMTP_HOST");
+  if (!user) missingKeys.push("SMTP_USER");
+  if (!pass) missingKeys.push("SMTP_PASS");
+  if (!Number.isFinite(port)) missingKeys.push("SMTP_PORT");
+  if (!from) missingKeys.push("MAIL_FROM");
+
+  return {
+    configured: missingKeys.length === 0,
+    missingKeys,
+    host,
+    port,
+    secure,
+    hasQuotedHost: hasWrappingQuotes(rawHost),
+    hasQuotedUser: hasWrappingQuotes(rawUser),
+    hasQuotedPass: hasWrappingQuotes(rawPass),
+    hasQuotedFrom: hasWrappingQuotes(rawFrom),
+    userMasked: maskEmail(user),
+    fromMasked: maskEmail(from),
+  };
 }
 
 function getTransporter(): nodemailer.Transporter | null {
@@ -25,23 +93,19 @@ function getTransporter(): nodemailer.Transporter | null {
 
   transporterInitialized = true;
 
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT ?? 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-
-  if (!host || !user || !pass || !Number.isFinite(port)) {
+  const diagnostics = getMailerDiagnostics();
+  if (!diagnostics.configured) {
     transporterCache = null;
     return null;
   }
 
   transporterCache = nodemailer.createTransport({
-    host,
-    port,
-    secure: toBool(process.env.SMTP_SECURE),
+    host: diagnostics.host,
+    port: diagnostics.port,
+    secure: diagnostics.secure,
     auth: {
-      user,
-      pass,
+      user: stripWrappingQuotes(process.env.SMTP_USER),
+      pass: stripWrappingQuotes(process.env.SMTP_PASS),
     },
   });
 
@@ -50,10 +114,17 @@ function getTransporter(): nodemailer.Transporter | null {
 
 export async function sendDriverAssignmentEmail(input: DriverAssignmentEmailInput): Promise<boolean> {
   const transporter = getTransporter();
-  const from = process.env.MAIL_FROM ?? process.env.SMTP_USER;
+  const diagnostics = getMailerDiagnostics();
+  const from = stripWrappingQuotes(process.env.MAIL_FROM ?? process.env.SMTP_USER);
 
-  if (!transporter || !from) {
-    console.warn("Driver assignment email skipped: SMTP is not configured.");
+  if (!transporter || !from || !diagnostics.configured) {
+    console.warn("Driver assignment email skipped: SMTP is not configured.", {
+      missingKeys: diagnostics.missingKeys,
+      hasQuotedHost: diagnostics.hasQuotedHost,
+      hasQuotedUser: diagnostics.hasQuotedUser,
+      hasQuotedPass: diagnostics.hasQuotedPass,
+      hasQuotedFrom: diagnostics.hasQuotedFrom,
+    });
     return false;
   }
 
@@ -84,13 +155,28 @@ export async function sendDriverAssignmentEmail(input: DriverAssignmentEmailInpu
     </div>
   `;
 
-  await transporter.sendMail({
-    from,
-    to: input.driverEmail,
-    subject,
-    text,
-    html,
-  });
+  try {
+    await transporter.sendMail({
+      from,
+      to: input.driverEmail,
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    const err = error as { code?: string; response?: string; message?: string };
+    console.error("Driver assignment email send failed", {
+      code: err?.code,
+      response: err?.response,
+      message: err?.message,
+      host: diagnostics.host,
+      port: diagnostics.port,
+      secure: diagnostics.secure,
+      userMasked: diagnostics.userMasked,
+      fromMasked: diagnostics.fromMasked,
+    });
+    throw error;
+  }
 
   return true;
 }
