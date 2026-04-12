@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 interface Params {
   id: string;
@@ -14,7 +15,7 @@ const updateUserSchema = z.object({
     .trim()
     .min(3)
     .max(40)
-    .regex(/^[a-zA-Z0-9._-]+$/, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, ., _, - зөвшөөрнө"),
+    .regex(/^[\p{L}\p{N}._\- ]+$/u, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, зай, ., _, - зөвшөөрнө"),
   role: z.enum(["ADMIN", "DRIVER", "OPERATOR"]),
   email: z.string().trim().optional(),
   isActive: z.boolean(),
@@ -183,10 +184,62 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<Par
       }
     }
 
+    const [
+      assignedOrdersCount,
+      deliveryAgentCount,
+      driverStocksCount,
+      stockMovementsCount,
+      createdTransfersCount,
+      sourceTransfersCount,
+      targetTransfersCount,
+      auditLogsCount,
+    ] = await prisma.$transaction([
+      prisma.order.count({ where: { assignedToId: id } }),
+      prisma.deliveryAgent.count({ where: { userId: id } }),
+      prisma.driverStock.count({ where: { driverId: id } }),
+      prisma.stockMovement.count({ where: { userId: id } }),
+      prisma.inventoryTransfer.count({ where: { createdById: id } }),
+      prisma.inventoryTransfer.count({ where: { fromDriverId: id } }),
+      prisma.inventoryTransfer.count({ where: { toDriverId: id } }),
+      prisma.orderAuditLog.count({ where: { userId: id } }),
+    ]);
+
+    const hasDependencies =
+      assignedOrdersCount > 0
+      || deliveryAgentCount > 0
+      || driverStocksCount > 0
+      || stockMovementsCount > 0
+      || createdTransfersCount > 0
+      || sourceTransfersCount > 0
+      || targetTransfersCount > 0
+      || auditLogsCount > 0;
+
+    if (hasDependencies) {
+      return NextResponse.json({
+        error: "Энэ хэрэглэгчтэй холбоотой түүхэн өгөгдөл байгаа тул устгах боломжгүй. Идэвхгүй (inactive) болгож ашиглана уу.",
+        details: {
+          assignedOrdersCount,
+          deliveryAgentCount,
+          driverStocksCount,
+          stockMovementsCount,
+          createdTransfersCount,
+          sourceTransfersCount,
+          targetTransfersCount,
+          auditLogsCount,
+        },
+      }, { status: 400 });
+    }
+
     await prisma.user.delete({ where: { id } });
 
     return NextResponse.json({ success: true, message: "Хэрэглэгч устгагдлаа" });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return NextResponse.json({
+        error: "Энэ хэрэглэгч өөр өгөгдөлтэй холбоотой тул устгах боломжгүй. Идэвхгүй болгож ашиглана уу.",
+      }, { status: 400 });
+    }
+
     console.error(error);
     return NextResponse.json({ error: "Алдаа гарлаа" }, { status: 500 });
   }

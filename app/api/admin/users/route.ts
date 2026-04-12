@@ -10,7 +10,7 @@ const createUserSchema = z.object({
     .trim()
     .min(3)
     .max(40)
-    .regex(/^[a-zA-Z0-9._-]+$/, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, ., _, - зөвшөөрнө"),
+    .regex(/^[\p{L}\p{N}._\- ]+$/u, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, зай, ., _, - зөвшөөрнө"),
   password: z.string().min(4).max(100),
   role: z.enum(["ADMIN", "DRIVER", "OPERATOR"]),
   email: z.string().trim().optional(),

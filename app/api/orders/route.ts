@@ -60,6 +60,17 @@ function toDayEnd(dayStart: Date): Date {
   return new Date(nextDay(dayStart).getTime() - 1);
 }
 
+function normalizeMnPhone(value: string): string | null {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+
+  const normalized = digits.startsWith("976") && digits.length === 11
+    ? digits.slice(3)
+    : digits;
+
+  return /^\d{8}$/.test(normalized) ? normalized : null;
+}
+
 async function rolloverOpenDeliveriesToToday(userId: string) {
   const today = startOfDay(new Date());
   const tomorrow = nextDay(today);
@@ -897,9 +908,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Дор хаяж нэг бараа нэмнэ үү" }, { status: 400 });
     }
 
-    const customerPhone = String(body.customer?.phone ?? "").trim();
+    const customerPhone = normalizeMnPhone(String(body.customer?.phone ?? ""));
     if (!customerPhone) {
-      return NextResponse.json({ error: "Утасны дугаар заавал оруулна" }, { status: 400 });
+      return NextResponse.json({ error: "Утасны дугаар дутуу бичигдсэн байна" }, { status: 400 });
     }
 
     const customerName = String(body.customer?.name ?? "").trim() || "Үл мэдэгдэх";

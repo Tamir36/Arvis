@@ -12,6 +12,17 @@ const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "RETURNED", "D
 const DRIVER_STOCK_CONSUMING_STATUSES = new Set(["DELIVERED"]);
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
 
+function normalizeMnPhone(value: string): string | null {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+
+  const normalized = digits.startsWith("976") && digits.length === 11
+    ? digits.slice(3)
+    : digits;
+
+  return /^\d{8}$/.test(normalized) ? normalized : null;
+}
+
 async function ensureDriverHasStock(
   driverId: string,
   items: Array<{ productId: string; qty: number; name: string }>,
@@ -370,14 +381,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "customerPhone")) {
-      const nextPhone = String(body.customerPhone ?? "").trim();
+      const nextPhone = normalizeMnPhone(String(body.customerPhone ?? ""));
       const currentPhone = order.customer.phone ?? "";
+      const currentNormalizedPhone = normalizeMnPhone(currentPhone) ?? currentPhone.replace(/\D/g, "");
 
       if (!nextPhone) {
-        return NextResponse.json({ error: "Утасны дугаар оруулна уу" }, { status: 400 });
+        return NextResponse.json({ error: "Утасны дугаар дутуу бичигдсэн байна" }, { status: 400 });
       }
 
-      if (nextPhone !== currentPhone) {
+      if (nextPhone !== currentNormalizedPhone) {
         didChangeCustomerPhone = true;
         nextCustomerPhone = nextPhone;
         auditChanges.push({

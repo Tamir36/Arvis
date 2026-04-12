@@ -52,6 +52,8 @@ interface DriverOption {
   name: string;
 }
 
+type ReportStatusFilter = "DELIVERED" | "CANCELLED" | "RETURNED";
+
 const STATUS_LABEL: Record<string, string> = {
   PENDING: "Хүлээгдэж байна",
   CONFIRMED: "Баталгаажсан",
@@ -92,6 +94,7 @@ export default function DriverReportPage() {
   const [allGroups, setAllGroups] = useState<DriverGroup[]>([]);
   const [drivers, setDrivers] = useState<DriverOption[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<ReportStatusFilter>("DELIVERED");
   const [isLoading, setIsLoading] = useState(true);
 
   // Fetch driver list once
@@ -132,12 +135,20 @@ export default function DriverReportPage() {
         driverId: group.driverId,
         driverName: group.driverName,
       })))
+      .filter((order) => String(order.status).toUpperCase() === statusFilter)
       .sort((a, b) => {
         const aTs = new Date(a.deliveredAt ?? a.createdAt).getTime();
         const bTs = new Date(b.deliveredAt ?? b.createdAt).getTime();
         return bTs - aTs;
       })
-  ), [groups]);
+  ), [groups, statusFilter]);
+
+  const tableAmountTotal = useMemo(
+    () => tableRows.reduce((sum, order) => sum + Number(order.total ?? 0), 0),
+    [tableRows],
+  );
+
+  const showSettlementColumns = statusFilter === "DELIVERED";
 
   const totals = groups.reduce(
     (acc, r) => ({
@@ -160,6 +171,21 @@ export default function DriverReportPage() {
       driverFee: 0,
       companyPayout: 0,
     }
+  );
+
+  const deliveredTableRows = useMemo(
+    () => tableRows.filter((row) => String(row.status).toUpperCase() === "DELIVERED"),
+    [tableRows],
+  );
+
+  const tableDriverFeeTotal = useMemo(
+    () => deliveredTableRows.reduce((sum, row) => sum + Number(row.driverFee ?? 0), 0),
+    [deliveredTableRows],
+  );
+
+  const tableCompanyTotal = useMemo(
+    () => deliveredTableRows.reduce((sum, row) => sum + Number(row.companyAmount ?? 0), 0),
+    [deliveredTableRows],
   );
 
   return (
@@ -197,9 +223,30 @@ export default function DriverReportPage() {
 
         <div className="flex flex-wrap gap-2">
           <SummaryCard label="Нийт захиалга" value={totals.totalOrders} color="slate" />
-          <SummaryCard label="Хүргэсэн" value={totals.delivered} color="green" />
-          <SummaryCard label="Цуцалсан" value={totals.cancelled} color="red" />
-          <SummaryCard label="Хойшлуулсан" value={totals.returned} color="orange" />
+          <SummaryCard
+            label="Хүргэсэн"
+            value={totals.delivered}
+            color="green"
+            clickable
+            active={statusFilter === "DELIVERED"}
+            onClick={() => setStatusFilter("DELIVERED")}
+          />
+          <SummaryCard
+            label="Цуцалсан"
+            value={totals.cancelled}
+            color="red"
+            clickable
+            active={statusFilter === "CANCELLED"}
+            onClick={() => setStatusFilter("CANCELLED")}
+          />
+          <SummaryCard
+            label="Хойшлуулсан"
+            value={totals.returned}
+            color="orange"
+            clickable
+            active={statusFilter === "RETURNED"}
+            onClick={() => setStatusFilter("RETURNED")}
+          />
         </div>
 
         {isLoading ? (
@@ -217,20 +264,24 @@ export default function DriverReportPage() {
           </Card>
         ) : (
           <Card padding="none">
-            <div className="overflow-x-auto">
+            <div className="overflow-auto max-h-[880px]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase w-10">#</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Огноо</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Жолооч</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Утас</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Хүргэсэн бараа</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Төлөв</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Төлбөр</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Захиалгын дүн</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Жолооч</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Тушаах дүн</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase w-10">#</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Огноо</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Жолооч</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Утас</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Хүргэсэн бараа</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Төлөв</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Төлбөр</th>
+                    <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Захиалгын дүн</th>
+                    {showSettlementColumns ? (
+                      <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Жолооч</th>
+                    ) : null}
+                    {showSettlementColumns ? (
+                      <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Тушаах дүн</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -266,20 +317,28 @@ export default function DriverReportPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-slate-700">{formatPrice(order.total)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-violet-600">{formatPrice(order.driverFee)}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatPrice(order.companyAmount)}</td>
+                      {showSettlementColumns ? (
+                        <td className="px-4 py-3 text-right font-medium text-violet-600">{formatPrice(order.driverFee)}</td>
+                      ) : null}
+                      {showSettlementColumns ? (
+                        <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatPrice(order.companyAmount)}</td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="bg-slate-50 border-t border-slate-200">
-                    <td colSpan={7} className="px-4 py-3 text-sm font-semibold text-slate-600">Тайлангийн мэдээлэл</td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-700">{formatPrice(totals.deliveredAmount)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-violet-600">{formatPrice(totals.driverFee)}</td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-800">{formatPrice(totals.companyPayout)}</td>
-                  </tr>
-                </tfoot>
               </table>
+            </div>
+            <div className="grid grid-cols-10 bg-slate-50 border-t border-slate-200">
+              <div className={`px-4 py-3 text-sm font-semibold text-slate-600 ${showSettlementColumns ? "col-span-7" : "col-span-9"}`}>
+                Тайлангийн мэдээлэл
+              </div>
+              <div className="col-span-1 px-4 py-3 text-right font-bold text-slate-700">{formatPrice(tableAmountTotal)}</div>
+              {showSettlementColumns ? (
+                <>
+                  <div className="col-span-1 px-4 py-3 text-right font-bold text-violet-600">{formatPrice(tableDriverFeeTotal)}</div>
+                  <div className="col-span-1 px-4 py-3 text-right font-bold text-slate-800">{formatPrice(tableCompanyTotal)}</div>
+                </>
+              ) : null}
             </div>
           </Card>
         )}
@@ -298,10 +357,16 @@ function SummaryCard({
   label,
   value,
   color,
+  clickable = false,
+  active = false,
+  onClick,
 }: {
   label: string;
   value: number | string;
   color: "green" | "red" | "orange" | "blue" | "sky" | "violet" | "slate";
+  clickable?: boolean;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   const colors = {
     green: "bg-green-50 text-green-700",
@@ -313,9 +378,14 @@ function SummaryCard({
     slate: "bg-slate-100 text-slate-700",
   };
   return (
-    <div className={`w-[150px] rounded-xl p-2.5 ${colors[color]}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!clickable}
+      className={`w-[150px] rounded-xl p-2.5 text-left transition ${colors[color]} ${clickable ? "hover:opacity-90" : ""} ${active ? "ring-2 ring-slate-400" : ""}`}
+    >
       <p className="text-[11px] font-medium opacity-70 leading-tight">{label}</p>
       <p className="text-lg font-bold mt-0.5 leading-tight">{value}</p>
-    </div>
+    </button>
   );
 }

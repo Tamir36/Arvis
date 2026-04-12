@@ -218,7 +218,9 @@ export async function GET(request: Request) {
     );
 
     entry.totalOrders += 1;
-    entry.totalAmount += orderTotal;
+    if (String(order.status) === "DELIVERED") {
+      entry.totalAmount += orderTotal;
+    }
     entry.driverFee += driverFee;
     entry.companyPayout += companyAmount;
 

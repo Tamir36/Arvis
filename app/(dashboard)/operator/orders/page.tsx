@@ -20,6 +20,11 @@ interface DriverOption {
   name: string;
 }
 
+interface FilterProductOption {
+  id: string;
+  name: string;
+}
+
 interface OrderRow {
   id: string;
   orderNumber: string;
@@ -170,10 +175,6 @@ function getTodayLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function getDefaultDriverFilter(drivers: DriverOption[]): string[] {
-  return [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)];
-}
-
 function displayDate(isoDate: string): string {
   return isoDate.replace(/-/g, ".");
 }
@@ -188,6 +189,17 @@ function formatDateTime(iso: string): string {
 function formatDateOnly(iso: string): string {
   const date = new Date(iso);
   return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeMnPhone(value: string): string | null {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+
+  const normalized = digits.startsWith("976") && digits.length === 11
+    ? digits.slice(3)
+    : digits;
+
+  return /^\d{8}$/.test(normalized) ? normalized : null;
 }
 
 function parseAuditValue(raw: string | null): string {
@@ -521,6 +533,7 @@ export default function OperatorOrdersPage() {
   const [phoneSearch, setPhoneSearch] = useState("");
   const [addressSearch, setAddressSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
+  const [productFilterQuery, setProductFilterQuery] = useState("");
   const [driverFilter, setDriverFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [registeredProductFilter, setRegisteredProductFilter] = useState<string[]>([]);
@@ -542,7 +555,6 @@ export default function OperatorOrdersPage() {
   const latestFetchRequestRef = useRef(0);
   const fetchAbortRef = useRef<AbortController | null>(null);
   const didLoadMetaRef = useRef(false);
-  const didInitFilterDefaultsRef = useRef(false);
   const detailsCacheRef = useRef<Record<string, OrderDetails>>({});
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [isDriverDropdownOpen, setIsDriverDropdownOpen] = useState(false);
@@ -592,19 +604,47 @@ export default function OperatorOrdersPage() {
     });
   }, [orders, driverFilter, statusFilter, registeredProductFilter]);
 
+  const productFilterOptions = useMemo<FilterProductOption[]>(() => {
+    const map = new Map<string, string>();
+    for (const order of orders) {
+      for (const item of order.items) {
+        if (!map.has(item.product.id)) {
+          map.set(item.product.id, item.product.name);
+        }
+      }
+    }
+
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "mn"));
+  }, [orders]);
+
+  const visibleProductFilterOptions = useMemo(() => {
+    const query = productFilterQuery.trim().toLowerCase();
+    if (!query) return productFilterOptions;
+    return productFilterOptions.filter((product) => product.name.toLowerCase().includes(query));
+  }, [productFilterOptions, productFilterQuery]);
+
   const productFilterLabel = useMemo(() => {
     if (registeredProductFilter.length === 0) return "Бараа";
     if (registeredProductFilter.length === 1) {
-      return products.find((product) => product.id === registeredProductFilter[0])?.name ?? "Бараа";
+      return productFilterOptions.find((product) => product.id === registeredProductFilter[0])?.name
+        ?? products.find((product) => product.id === registeredProductFilter[0])?.name
+        ?? "Бараа";
     }
     return `${registeredProductFilter.length} бараа сонгосон`;
-  }, [products, registeredProductFilter]);
+  }, [productFilterOptions, products, registeredProductFilter]);
 
   const driverFilterLabel = useMemo(() => {
+    const allDriverFilterValues = [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)];
+    const isAllDriversSelected = allDriverFilterValues.length > 0
+      && allDriverFilterValues.every((value) => driverFilter.includes(value));
+
+    if (isAllDriversSelected) return "Бүгд";
     if (driverFilter.length === 0) return "Жолооч";
     if (driverFilter.length === 1) {
       if (driverFilter[0] === UNASSIGNED_DRIVER_FILTER_VALUE) {
-        return "-";
+        return "Blank";
       }
       return drivers.find((driver) => driver.id === driverFilter[0])?.name ?? "Жолооч";
     }
@@ -612,6 +652,11 @@ export default function OperatorOrdersPage() {
   }, [driverFilter, drivers]);
 
   const statusFilterLabel = useMemo(() => {
+    const allStatusValues = STATUS_OPTIONS.map((option) => option.value);
+    const isAllStatusesSelected = allStatusValues.length > 0
+      && allStatusValues.every((value) => statusFilter.includes(value));
+
+    if (isAllStatusesSelected) return "Бүгд";
     if (statusFilter.length === 0) return "Төлөв";
     if (statusFilter.length === 1) {
       return STATUS_OPTIONS.find((option) => option.value === statusFilter[0])?.label ?? "Төлөв";
@@ -758,11 +803,6 @@ export default function OperatorOrdersPage() {
 
         setProducts(parsedProducts);
         setDrivers(parsedDrivers);
-        if (!didInitFilterDefaultsRef.current) {
-          setDriverFilter(getDefaultDriverFilter(parsedDrivers));
-          setStatusFilter(STATUS_OPTIONS.map((option) => option.value));
-          didInitFilterDefaultsRef.current = true;
-        }
         didLoadMetaRef.current = true;
       }
     } catch (error) {
@@ -884,8 +924,9 @@ export default function OperatorOrdersPage() {
       return;
     }
 
-    if (!customerPhone.trim()) {
-      toast.error("Дугаар оруулна уу");
+    const normalizedCustomerPhone = normalizeMnPhone(customerPhone);
+    if (!normalizedCustomerPhone) {
+      toast.error("Утасны дугаар дутуу бичигдсэн байна");
       return;
     }
 
@@ -926,7 +967,7 @@ export default function OperatorOrdersPage() {
         body: JSON.stringify({
           customer: {
             name: "Харилцагч",
-            phone: customerPhone.trim(),
+            phone: normalizedCustomerPhone,
             address: shippingAddress.trim() || undefined,
           },
           items: normalizedItems.map((item) => ({
@@ -1160,9 +1201,22 @@ export default function OperatorOrdersPage() {
     setPhoneSearch("");
     setAddressSearch("");
     setProductSearch("");
-    setDriverFilter(getDefaultDriverFilter(drivers));
-    setStatusFilter(STATUS_OPTIONS.map((option) => option.value));
+    setProductFilterQuery("");
+    setDriverFilter([]);
+    setStatusFilter([]);
     setRegisteredProductFilter([]);
+  };
+
+  const selectAllDrivers = () => {
+    const allDrivers = [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)];
+    const areAllSelected = allDrivers.length > 0 && allDrivers.every((value) => driverFilter.includes(value));
+    setDriverFilter(areAllSelected ? [] : allDrivers);
+  };
+
+  const selectAllStatuses = () => {
+    const allStatuses = STATUS_OPTIONS.map((option) => option.value);
+    const areAllSelected = allStatuses.length > 0 && allStatuses.every((value) => statusFilter.includes(value));
+    setStatusFilter(areAllSelected ? [] : allStatuses);
   };
 
   const handleCloseDetails = () => {
@@ -1355,9 +1409,9 @@ export default function OperatorOrdersPage() {
       return;
     }
 
-    const normalizedPhone = detailsDraft.customerPhone.trim();
+    const normalizedPhone = normalizeMnPhone(detailsDraft.customerPhone);
     if (!normalizedPhone) {
-      toast.error("Утасны дугаар оруулна уу");
+      toast.error("Утасны дугаар дутуу бичигдсэн байна");
       return;
     }
 
@@ -1751,7 +1805,18 @@ export default function OperatorOrdersPage() {
 
                       {isProductDropdownOpen && (
                         <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] max-h-[220px] overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-                          {products.map((product) => {
+                          <div className="px-1 pb-1">
+                            <input
+                              type="search"
+                              value={productFilterQuery}
+                              onChange={(e) => setProductFilterQuery(e.target.value)}
+                              placeholder="Бараа"
+                              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                          {visibleProductFilterOptions.length === 0 ? (
+                            <div className="px-2 py-2 text-[11px] text-slate-400">Бараа олдсонгүй</div>
+                          ) : visibleProductFilterOptions.map((product) => {
                             const isSelected = registeredProductFilter.includes(product.id);
                             return (
                               <button
@@ -1799,7 +1864,7 @@ export default function OperatorOrdersPage() {
                             <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE) ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
                               <Check className="h-3 w-3" />
                             </span>
-                            <span className="truncate">-</span>
+                            <span className="truncate">Blank</span>
                           </button>
                           {drivers.map((driver, index) => {
                             const isSelected = driverFilter.includes(driver.id);
@@ -1817,6 +1882,14 @@ export default function OperatorOrdersPage() {
                               </button>
                             );
                           })}
+                          <div className="my-1 border-t border-slate-200" />
+                          <button
+                            type="button"
+                            onClick={selectAllDrivers}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            <span className="truncate">Бүгд</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -1854,6 +1927,14 @@ export default function OperatorOrdersPage() {
                               </button>
                             );
                           })}
+                          <div className="my-1 border-t border-slate-200" />
+                          <button
+                            type="button"
+                            onClick={selectAllStatuses}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            <span className="truncate">Бүгд</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -2003,7 +2084,6 @@ export default function OperatorOrdersPage() {
       {openDetails && detailsDraft && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-2"
-          onClick={handleCloseDetails}
         >
           <div
             className="flex max-h-[calc(100vh-16px)] w-full max-w-6xl flex-col overflow-hidden rounded-md border border-slate-300 bg-white shadow-xl"
