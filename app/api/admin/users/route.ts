@@ -13,8 +13,14 @@ const createUserSchema = z.object({
     .regex(/^[a-zA-Z0-9._-]+$/, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, ., _, - зөвшөөрнө"),
   password: z.string().min(4).max(100),
   role: z.enum(["ADMIN", "DRIVER", "OPERATOR"]),
+  email: z.string().trim().optional(),
   isActive: z.boolean().optional(),
+  receiveOrderNotifications: z.boolean().optional(),
 });
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
 export async function GET() {
   try {
@@ -34,6 +40,7 @@ export async function GET() {
         email: true,
         role: true,
         isActive: true,
+        receiveOrderNotifications: true,
         createdAt: true,
       },
       orderBy: { createdAt: "desc" },
@@ -69,13 +76,26 @@ export async function POST(req: NextRequest) {
     const role = parsed.data.role;
     const password = parsed.data.password;
     const isActive = parsed.data.isActive ?? true;
+    const inputEmail = String(parsed.data.email ?? "").trim().toLowerCase();
+    const receiveOrderNotifications = role === "DRIVER"
+      ? (parsed.data.receiveOrderNotifications ?? false)
+      : false;
     const generatedEmail = `${username.toLowerCase()}@local.arvis`;
+    const emailToSave = role === "DRIVER" ? inputEmail : (inputEmail || generatedEmail);
+
+    if (role === "DRIVER" && !inputEmail) {
+      return NextResponse.json({ error: "Жолоочийн имэйл заавал бөглөнө" }, { status: 400 });
+    }
+
+    if (inputEmail && !isValidEmail(inputEmail)) {
+      return NextResponse.json({ error: "Имэйлийн формат буруу байна" }, { status: 400 });
+    }
 
     const exists = await prisma.user.findFirst({
       where: {
         OR: [
           { name: username },
-          { email: generatedEmail },
+          { email: emailToSave },
         ],
       },
       select: { id: true },
@@ -90,10 +110,11 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.create({
       data: {
         name: username,
-        email: generatedEmail,
+        email: emailToSave,
         password: passwordHash,
         role,
         isActive,
+        receiveOrderNotifications,
       },
       select: {
         id: true,
@@ -101,6 +122,7 @@ export async function POST(req: NextRequest) {
         email: true,
         role: true,
         isActive: true,
+        receiveOrderNotifications: true,
         createdAt: true,
       },
     });

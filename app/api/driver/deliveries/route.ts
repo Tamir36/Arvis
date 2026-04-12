@@ -71,29 +71,62 @@ async function rolloverDriverOpenDeliveriesToToday(driverUserId: string) {
     return;
   }
 
-  await prisma.$transaction(async (tx) => {
-    for (const assignment of overdueAssignments) {
-      if (!assignment.timeSlot) continue;
+  const slotCache = new Map<string, string>();
 
-      const nextSlot = await tx.timeSlot.create({
-        data: {
+  for (const assignment of overdueAssignments) {
+    if (!assignment.timeSlot) continue;
+
+    const slotKey = [
+      today.toISOString().slice(0, 10),
+      assignment.timeSlot.startTime,
+      assignment.timeSlot.endTime,
+      assignment.timeSlot.maxOrders,
+      assignment.timeSlot.zone,
+      assignment.timeSlot.isActive ? "1" : "0",
+    ].join("|");
+
+    let nextSlotId = slotCache.get(slotKey) ?? null;
+
+    if (!nextSlotId) {
+      const existing = await prisma.timeSlot.findFirst({
+        where: {
           date: today,
           startTime: assignment.timeSlot.startTime,
           endTime: assignment.timeSlot.endTime,
           maxOrders: assignment.timeSlot.maxOrders,
           zone: assignment.timeSlot.zone,
           isActive: assignment.timeSlot.isActive,
-          bookedCount: 0,
         },
         select: { id: true },
       });
 
-      await tx.deliveryAssignment.update({
-        where: { id: assignment.id },
-        data: { timeSlotId: nextSlot.id },
-      });
+      if (existing) {
+        nextSlotId = existing.id;
+      } else {
+        const created = await prisma.timeSlot.create({
+          data: {
+            date: today,
+            startTime: assignment.timeSlot.startTime,
+            endTime: assignment.timeSlot.endTime,
+            maxOrders: assignment.timeSlot.maxOrders,
+            zone: assignment.timeSlot.zone,
+            isActive: assignment.timeSlot.isActive,
+            bookedCount: 0,
+          },
+          select: { id: true },
+        });
+        nextSlotId = created.id;
+      }
 
-      await tx.orderAuditLog.create({
+      slotCache.set(slotKey, nextSlotId);
+    }
+
+    await prisma.$transaction([
+      prisma.deliveryAssignment.update({
+        where: { id: assignment.id },
+        data: { timeSlotId: nextSlotId },
+      }),
+      prisma.orderAuditLog.create({
         data: {
           orderId: assignment.orderId,
           userId: driverUserId,
@@ -106,12 +139,9 @@ async function rolloverDriverOpenDeliveriesToToday(driverUserId: string) {
             reason: "driver_deliveries_daily_rollover",
           }),
         },
-      });
-    }
-  }, {
-    maxWait: 45000,
-    timeout: 45000,
-  });
+      }),
+    ]);
+  }
 }
 
 function parseDateKey(value: string | null): Date {

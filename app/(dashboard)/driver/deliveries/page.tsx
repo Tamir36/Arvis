@@ -119,6 +119,7 @@ const DELIVERY_STATUS_PRIORITY: Record<string, number> = {
 };
 
 type DriverStatusTab = "ALL" | "DELIVERED" | "RETURNED" | "CANCELLED";
+type DriverBorderMarker = "blue" | "orange" | "green";
 
 const DRIVER_STATUS_TABS: Array<{ value: DriverStatusTab; label: string }> = [
   { value: "ALL", label: "Нийт" },
@@ -143,6 +144,27 @@ const TAB_STYLE_MAP: Record<DriverStatusTab, { active: string; inactive: string 
   CANCELLED: {
     active: "border-rose-500 bg-rose-500 text-white",
     inactive: "border-rose-200 bg-rose-50 text-rose-700",
+  },
+};
+
+const DRIVER_BORDER_MARKER_STYLES: Record<DriverBorderMarker, { border: string; ring: string; dot: string; label: string }> = {
+  blue: {
+    border: "border-sky-400",
+    ring: "border-sky-300 bg-sky-50",
+    dot: "bg-sky-500",
+    label: "Цэнхэр",
+  },
+  orange: {
+    border: "border-amber-400",
+    ring: "border-amber-300 bg-amber-50",
+    dot: "bg-amber-500",
+    label: "Улбар шар",
+  },
+  green: {
+    border: "border-emerald-400",
+    ring: "border-emerald-300 bg-emerald-50",
+    dot: "bg-emerald-500",
+    label: "Ногоон",
   },
 };
 
@@ -191,6 +213,7 @@ export default function DriverDeliveriesPage() {
   const [savingOrderId, setSavingOrderId] = useState("");
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, string>>({});
+  const [borderMarkers, setBorderMarkers] = useState<Record<string, DriverBorderMarker | undefined>>({});
   const [selectedDate, setSelectedDate] = useState(todayDate);
   const [visibleMonth, setVisibleMonth] = useState(todayDate.slice(0, 7));
   const [phoneSearch, setPhoneSearch] = useState("");
@@ -426,6 +449,17 @@ export default function DriverDeliveriesPage() {
     }, 700);
   }
 
+  function toggleBorderMarker(orderId: string, marker: DriverBorderMarker) {
+    setBorderMarkers((prev) => {
+      const current = prev[orderId];
+      if (current === marker) {
+        const { [orderId]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [orderId]: marker };
+    });
+  }
+
   return (
     <div>
       <Header title="Миний хүргэлт" showSearch={false} />
@@ -523,8 +557,12 @@ export default function DriverDeliveriesPage() {
               const statusOptions = getStatusOptions(order.status);
               const isPaymentReceived = order.paymentStatus === "PAID";
               const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
+              const borderMarker = borderMarkers[order.id];
+              const borderMarkerClass = borderMarker
+                ? DRIVER_BORDER_MARKER_STYLES[borderMarker].border
+                : "border-slate-200";
               return (
-                <div key={order.id} className="relative rounded-xl border border-slate-200 p-3">
+                <div key={order.id} className={`relative rounded-xl border-2 p-3 ${borderMarkerClass}`}>
                   <button
                     type="button"
                     onClick={() => void handleCopyOrderInfo(order)}
@@ -562,18 +600,37 @@ export default function DriverDeliveriesPage() {
                   </div>
 
                   <div className="mt-3 space-y-2">
-                    <select
-                      value={nextStatus}
-                      onChange={(e) => scheduleStatusSave(order.id, e.target.value)}
-                      disabled={savingOrderId === order.id}
-                      className={`w-full rounded-md border px-2 py-2 text-sm font-medium ${STATUS_CLASSES[nextStatus] ?? "border-slate-200 bg-white text-slate-700"}`}
-                    >
-                      {statusOptions.map((statusOption) => (
-                        <option key={statusOption.value} value={statusOption.value}>
-                          {statusOption.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={nextStatus}
+                        onChange={(e) => scheduleStatusSave(order.id, e.target.value)}
+                        disabled={savingOrderId === order.id}
+                        className={`h-9 min-w-0 flex-1 rounded-md border px-2 text-xs font-medium ${STATUS_CLASSES[nextStatus] ?? "border-slate-200 bg-white text-slate-700"}`}
+                      >
+                        {statusOptions.map((statusOption) => (
+                          <option key={statusOption.value} value={statusOption.value}>
+                            {statusOption.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {(["blue", "orange", "green"] as DriverBorderMarker[]).map((marker) => {
+                        const style = DRIVER_BORDER_MARKER_STYLES[marker];
+                        const selected = borderMarker === marker;
+                        return (
+                          <button
+                            key={`${order.id}-${marker}`}
+                            type="button"
+                            onClick={() => toggleBorderMarker(order.id, marker)}
+                            title={style.label}
+                            aria-label={`${style.label} хүрээ`}
+                            className={`grid h-8 w-8 place-items-center rounded-md border ${selected ? style.ring : "border-slate-300 bg-white"}`}
+                          >
+                            <span className={`h-3.5 w-3.5 rounded-full ${style.dot}`} />
+                          </button>
+                        );
+                      })}
+                    </div>
                     {savingOrderId === order.id && <p className="text-xs text-slate-500">Хадгалж байна...</p>}
                   </div>
                 </div>
@@ -608,8 +665,12 @@ export default function DriverDeliveriesPage() {
                   const statusOptions = getStatusOptions(order.status);
                   const isPaymentReceived = order.paymentStatus === "PAID";
                   const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
+                  const borderMarker = borderMarkers[order.id];
+                  const rowBorderClass = borderMarker
+                    ? DRIVER_BORDER_MARKER_STYLES[borderMarker].border
+                    : "border-slate-100";
                   return (
-                    <tr key={order.id} className="align-top">
+                    <tr key={order.id} className={`align-top border-l-2 ${rowBorderClass}`}>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <a href={`tel:${order.customer.phone.replace(/\s+/g, "")}`} className="text-xs font-medium text-blue-600 underline underline-offset-2">
@@ -647,18 +708,37 @@ export default function DriverDeliveriesPage() {
                       <td className="p-3 text-xs text-slate-600">{order.shippingAddress || order.customer.address || "-"}</td>
                       <td className="p-3 text-xs whitespace-pre-wrap text-slate-600">{order.notes?.trim() || ""}</td>
                       <td className="p-3">
-                        <select
-                          value={nextStatus}
-                          onChange={(e) => scheduleStatusSave(order.id, e.target.value)}
-                          disabled={savingOrderId === order.id}
-                          className={`rounded-md border px-2 py-1.5 text-sm font-medium ${STATUS_CLASSES[nextStatus] ?? "border-slate-200 bg-white text-slate-700"}`}
-                        >
-                          {statusOptions.map((statusOption) => (
-                            <option key={statusOption.value} value={statusOption.value}>
-                              {statusOption.label}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={nextStatus}
+                            onChange={(e) => scheduleStatusSave(order.id, e.target.value)}
+                            disabled={savingOrderId === order.id}
+                            className={`h-8 rounded-md border px-2 text-xs font-medium ${STATUS_CLASSES[nextStatus] ?? "border-slate-200 bg-white text-slate-700"}`}
+                          >
+                            {statusOptions.map((statusOption) => (
+                              <option key={statusOption.value} value={statusOption.value}>
+                                {statusOption.label}
+                              </option>
+                            ))}
+                          </select>
+
+                          {(["blue", "orange", "green"] as DriverBorderMarker[]).map((marker) => {
+                            const style = DRIVER_BORDER_MARKER_STYLES[marker];
+                            const selected = borderMarker === marker;
+                            return (
+                              <button
+                                key={`${order.id}-desktop-${marker}`}
+                                type="button"
+                                onClick={() => toggleBorderMarker(order.id, marker)}
+                                title={style.label}
+                                aria-label={`${style.label} хүрээ`}
+                                className={`grid h-7 w-7 place-items-center rounded-md border ${selected ? style.ring : "border-slate-300 bg-white"}`}
+                              >
+                                <span className={`h-3 w-3 rounded-full ${style.dot}`} />
+                              </button>
+                            );
+                          })}
+                        </div>
                         {savingOrderId === order.id && <p className="mt-1 text-[11px] text-slate-500">Хадгалж байна...</p>}
                       </td>
                     </tr>

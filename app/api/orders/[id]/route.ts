@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { sendDriverAssignmentEmail } from "@/lib/mailer";
 import { Prisma } from "@prisma/client";
 
 interface Params {
@@ -174,6 +175,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<Params
           select: {
             id: true,
             name: true,
+            email: true,
           },
         },
         items: {
@@ -236,6 +238,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           select: {
             id: true,
             name: true,
+            email: true,
+            receiveOrderNotifications: true,
           },
         },
       },
@@ -249,6 +253,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     let nextStatus = typeof body.status === "string" && body.status.trim() ? body.status : order.status;
     let targetDriverId: string | null = order.assignedToId;
     let targetDriverName: string | null = order.assignedTo?.name ?? null;
+    let targetDriverEmail: string | null = order.assignedTo?.email ?? null;
+    let targetDriverReceiveNotifications = order.assignedTo?.receiveOrderNotifications ?? false;
     let nextDriverAgentId: string | null = null;
     let didChangeCustomerPhone = false;
     let nextCustomerPhone = order.customer.phone ?? "";
@@ -288,7 +294,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
               role: "DRIVER",
               isActive: true,
             },
-            select: { id: true, name: true },
+            select: { id: true, name: true, email: true, receiveOrderNotifications: true },
           });
 
           if (!driver) {
@@ -297,6 +303,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
           nextDriverName = driver.name;
           targetDriverName = driver.name;
+          targetDriverEmail = driver.email;
+          targetDriverReceiveNotifications = Boolean(driver.receiveOrderNotifications);
 
           const driverAgent = await prisma.deliveryAgent.upsert({
             where: { userId: nextDriverId },
@@ -312,6 +320,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
         if (!nextDriverId) {
           targetDriverName = null;
+          targetDriverEmail = null;
+          targetDriverReceiveNotifications = false;
         }
 
         // Check stock for the new driver BEFORE updating status
@@ -952,6 +962,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       maxWait: 45000,
       timeout: 45000,
     });
+
+    if (didChangeDriver && targetDriverId && targetDriverEmail && targetDriverReceiveNotifications) {
+      try {
+        await sendDriverAssignmentEmail({
+          driverEmail: targetDriverEmail,
+          driverName: targetDriverName ?? updated.assignedTo?.name ?? "Driver",
+          orderNumber: updated.orderNumber,
+          customerName: updated.customer.name,
+          customerPhone: updated.customer.phone,
+          shippingAddress: updated.shippingAddress ?? updated.customer.address ?? null,
+          status: String(updated.status ?? ""),
+          assignedBy: session.user.name ?? "Operator",
+          items: updated.items.map((item) => ({
+            name: item.name,
+            qty: Number(item.qty),
+          })),
+          totalAmount: Number(updated.total),
+        });
+      } catch (emailError) {
+        console.error("Failed to send driver assignment email", emailError);
+      }
+    }
 
     return NextResponse.json(updated);
   } catch (err) {

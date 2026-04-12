@@ -16,9 +16,15 @@ const updateUserSchema = z.object({
     .max(40)
     .regex(/^[a-zA-Z0-9._-]+$/, "Нэвтрэх нэрэнд зөвхөн үсэг, тоо, ., _, - зөвшөөрнө"),
   role: z.enum(["ADMIN", "DRIVER", "OPERATOR"]),
+  email: z.string().trim().optional(),
   isActive: z.boolean(),
+  receiveOrderNotifications: z.boolean().optional(),
   password: z.string().min(4).max(100).optional(),
 });
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
 async function ensureAdmin() {
   const session = await auth();
@@ -52,7 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
 
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, isActive: true },
+      select: { id: true, role: true, isActive: true, receiveOrderNotifications: true },
     });
 
     if (!target) {
@@ -62,15 +68,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     const username = parsed.data.username.trim();
     const role = parsed.data.role;
     const isActive = parsed.data.isActive;
+    const inputEmail = String(parsed.data.email ?? "").trim().toLowerCase();
     const nextPassword = typeof parsed.data.password === "string" ? parsed.data.password.trim() : "";
+    const receiveOrderNotifications = role === "DRIVER"
+      ? (parsed.data.receiveOrderNotifications ?? target.receiveOrderNotifications)
+      : false;
     const generatedEmail = `${username.toLowerCase()}@local.arvis`;
+    const emailToSave = role === "DRIVER" ? inputEmail : (inputEmail || generatedEmail);
+
+    if (role === "DRIVER" && !inputEmail) {
+      return NextResponse.json({ error: "Жолоочийн имэйл заавал бөглөнө" }, { status: 400 });
+    }
+
+    if (inputEmail && !isValidEmail(inputEmail)) {
+      return NextResponse.json({ error: "Имэйлийн формат буруу байна" }, { status: 400 });
+    }
 
     const duplicate = await prisma.user.findFirst({
       where: {
         id: { not: id },
         OR: [
           { name: username },
-          { email: generatedEmail },
+          { email: emailToSave },
         ],
       },
       select: { id: true },
@@ -99,12 +118,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       email: string;
       role: "ADMIN" | "DRIVER" | "OPERATOR";
       isActive: boolean;
+      receiveOrderNotifications: boolean;
       password?: string;
     } = {
       name: username,
-      email: generatedEmail,
+      email: emailToSave,
       role,
       isActive,
+      receiveOrderNotifications,
     };
 
     if (nextPassword) {
@@ -120,6 +141,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         email: true,
         role: true,
         isActive: true,
+        receiveOrderNotifications: true,
         createdAt: true,
       },
     });

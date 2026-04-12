@@ -29,6 +29,7 @@ model User {
   role      UserRole @default(OPERATOR)
   avatar    String?
   isActive  Boolean  @default(true)
+  receiveOrderNotifications Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

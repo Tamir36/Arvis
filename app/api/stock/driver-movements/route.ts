@@ -48,6 +48,32 @@ interface MovementEvent {
   removed: number;
 }
 
+interface DailyProductTotals {
+  [productId: string]: number;
+}
+
+function addDailyValue(
+  map: Record<string, DailyProductTotals>,
+  day: string,
+  productId: string,
+  quantity: number,
+) {
+  if (!Number.isFinite(quantity) || quantity <= 0) return;
+  if (!map[day]) map[day] = {};
+  map[day][productId] = (map[day][productId] ?? 0) + quantity;
+}
+
+function subtractDailyValue(
+  map: Record<string, DailyProductTotals>,
+  day: string,
+  productId: string,
+  quantity: number,
+) {
+  if (!Number.isFinite(quantity) || quantity <= 0) return;
+  if (!map[day]) map[day] = {};
+  map[day][productId] = Math.max(0, (map[day][productId] ?? 0) - quantity);
+}
+
 function extractStockAuditMovement(
   raw: string | null,
   fallbackDriverId: string | null,
@@ -155,21 +181,76 @@ export async function GET(req: NextRequest) {
           action: { in: ["DRIVER_STOCK_DEDUCTED", "DRIVER_STOCK_RESTORED"] },
           createdAt: { lte: toEnd },
           OR: [
-            { userId: driverId },
-            { newValue: { contains: driverId } },
+            {
+              newValue: {
+                contains: `"driverId":"${driverId}"`,
+              },
+            },
+            {
+              AND: [
+                {
+                  newValue: {
+                    not: {
+                      contains: '"driverId":',
+                    },
+                  },
+                },
+                {
+                  order: {
+                    assignedToId: driverId,
+                  },
+                },
+              ],
+            },
           ],
         },
         select: {
+          id: true,
+          orderId: true,
           action: true,
           newValue: true,
           createdAt: true,
           userId: true,
         },
+        orderBy: { createdAt: "asc" },
       }),
     ]);
 
     if (!driver) {
       return NextResponse.json({ error: "Жолооч олдсонгүй" }, { status: 404 });
+    }
+
+    // For old-style orders where stock was deducted on assignment (reason=reserved/reserved_on_create/reserved_items_changed),
+    // find when each order was actually delivered so we can count it on the correct day.
+    const reservedOrderIds = stockAuditLogs
+      .filter((log) => {
+        if (log.action !== "DRIVER_STOCK_DEDUCTED") return false;
+        let p: { reason?: unknown } | null = null;
+        try { p = log.newValue ? (JSON.parse(log.newValue) as { reason?: unknown }) : null; } catch { return false; }
+        const r = String(p?.reason ?? "").toLowerCase();
+        return r === "reserved" || r === "reserved_on_create" || r === "reserved_items_changed";
+      })
+      .map((log) => log.orderId)
+      .filter((id): id is string => Boolean(id));
+
+    const deliveryStatusLogs = reservedOrderIds.length > 0
+      ? await prisma.orderAuditLog.findMany({
+          where: {
+            action: "STATUS_CHANGED",
+            newValue: "DELIVERED",
+            orderId: { in: reservedOrderIds },
+          },
+          select: { orderId: true, createdAt: true },
+          orderBy: { createdAt: "asc" },
+        })
+      : [];
+
+    // Maps orderId → first time its status changed to DELIVERED
+    const orderDeliveredAt = new Map<string, Date>();
+    for (const dl of deliveryStatusLogs) {
+      if (dl.orderId && !orderDeliveredAt.has(dl.orderId)) {
+        orderDeliveredAt.set(dl.orderId, dl.createdAt);
+      }
     }
 
     const events: MovementEvent[] = [];
@@ -198,23 +279,112 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const orderDailyRemoved: Record<string, DailyProductTotals> = {};
+    const deliveredBucketsByOrderProduct = new Map<string, Array<{ day: string; remainingQty: number }>>();
+
     for (const log of stockAuditLogs) {
       const parsed = extractStockAuditMovement(log.newValue, log.userId ?? null);
-      if (!parsed?.driverId || parsed.driverId !== driverId || parsed.items.length === 0) {
+      if (!parsed || parsed.items.length === 0 || !log.orderId) {
         continue;
       }
 
-      const sign = log.action === "DRIVER_STOCK_DEDUCTED" ? -1 : 1;
+      const belongsToDriver = parsed.driverId
+        ? parsed.driverId === driverId
+        : true;
+
+      if (!belongsToDriver) {
+        continue;
+      }
+
+      const payload = (() => {
+        try {
+          return log.newValue ? JSON.parse(log.newValue) as { reason?: unknown } : null;
+        } catch {
+          return null;
+        }
+      })();
+      const reason = String(payload?.reason ?? "").toLowerCase();
+      const isDeliveredDeduction = log.action === "DRIVER_STOCK_DEDUCTED"
+        && (
+          reason === "delivered"
+          || reason === "delivered_items_changed"
+          || reason === "driver_reassigned"
+          || reason === ""
+        );
+      // Old-style: stock reserved at assignment — count on the delivery date
+      const isReservedDeduction = log.action === "DRIVER_STOCK_DEDUCTED"
+        && (reason === "reserved" || reason === "reserved_on_create" || reason === "reserved_items_changed");
+      const isDeliveredRestoreAdjustment = log.action === "DRIVER_STOCK_RESTORED"
+        && (
+          reason === "cancelled"
+          || reason === "released"
+          || reason === "reserved_items_changed"
+          || reason === "delivered_items_changed"
+          || reason === "backfill_delivered_only_rule"
+          || reason === "driver_reassigned" // cancels out a reserved deduction for reassigned orders
+        );
+
+      if (!isDeliveredDeduction && !isReservedDeduction && !isDeliveredRestoreAdjustment) {
+        continue;
+      }
 
       for (const item of parsed.items) {
         if (!item.productId || !Number.isFinite(item.qty) || item.qty <= 0) continue;
 
+        const bucketKey = `${log.orderId}:${item.productId}`;
+
+        if (isDeliveredDeduction || isReservedDeduction) {
+          let day: string;
+          if (isDeliveredDeduction) {
+            day = toDayKey(log.createdAt);
+          } else {
+            // reserved deduction: use the date the order was actually delivered
+            const deliveredAt = log.orderId ? orderDeliveredAt.get(log.orderId) : undefined;
+            if (!deliveredAt) continue; // order was never delivered (or reassigned) — skip
+            day = toDayKey(deliveredAt);
+          }
+          addDailyValue(orderDailyRemoved, day, item.productId, item.qty);
+
+          const buckets = deliveredBucketsByOrderProduct.get(bucketKey) ?? [];
+          buckets.push({ day, remainingQty: item.qty });
+          deliveredBucketsByOrderProduct.set(bucketKey, buckets);
+          continue;
+        }
+
+        let remainingToRestore = item.qty;
+        const buckets = deliveredBucketsByOrderProduct.get(bucketKey) ?? [];
+        while (remainingToRestore > 0 && buckets.length > 0) {
+          const latestBucket = buckets[buckets.length - 1];
+          const restoreQty = Math.min(latestBucket.remainingQty, remainingToRestore);
+          subtractDailyValue(orderDailyRemoved, latestBucket.day, item.productId, restoreQty);
+
+          latestBucket.remainingQty -= restoreQty;
+          remainingToRestore -= restoreQty;
+          if (latestBucket.remainingQty <= 0) {
+            buckets.pop();
+          }
+        }
+
+        if (buckets.length > 0) {
+          deliveredBucketsByOrderProduct.set(bucketKey, buckets);
+        } else {
+          deliveredBucketsByOrderProduct.delete(bucketKey);
+        }
+      }
+    }
+
+    for (const [day, productTotals] of Object.entries(orderDailyRemoved)) {
+      const eventDate = parseDayStart(day);
+      if (!eventDate) continue;
+
+      for (const [productId, removedQty] of Object.entries(productTotals)) {
+        if (!Number.isFinite(removedQty) || removedQty <= 0) continue;
         events.push({
-          createdAt: log.createdAt,
-          productId: item.productId,
-          delta: sign * item.qty,
-          added: sign > 0 ? item.qty : 0,
-          removed: sign < 0 ? item.qty : 0,
+          createdAt: eventDate,
+          productId,
+          delta: -removedQty,
+          added: 0,
+          removed: removedQty,
         });
       }
     }

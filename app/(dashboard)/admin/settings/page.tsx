@@ -15,21 +15,26 @@ interface UserItem {
   email: string;
   role: UserRole;
   isActive: boolean;
+  receiveOrderNotifications: boolean;
   createdAt: string;
 }
 
 interface EditState {
   username: string;
+  email: string;
   role: UserRole;
   isActive: boolean;
+  receiveOrderNotifications: boolean;
   password: string;
 }
 
 export default function SettingsPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("OPERATOR");
   const [isActive, setIsActive] = useState(true);
+  const [receiveOrderNotifications, setReceiveOrderNotifications] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState("");
   const [createSuccess, setCreateSuccess] = useState("");
@@ -73,7 +78,14 @@ export default function SettingsPage() {
 
   const startEdit = (user: UserItem) => {
     setEditingUserId(user.id);
-    setEditState({ username: user.name, role: user.role, isActive: user.isActive, password: "" });
+    setEditState({
+      username: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      receiveOrderNotifications: Boolean(user.receiveOrderNotifications),
+      password: "",
+    });
   };
 
   const cancelEdit = () => {
@@ -91,6 +103,12 @@ export default function SettingsPage() {
       return;
     }
 
+    const trimmedEmail = editState.email.trim();
+    if (editState.role === "DRIVER" && !trimmedEmail) {
+      setListError("Жолоочийн имэйл заавал бөглөнө");
+      return;
+    }
+
     setListError("");
     setRowLoadingId(userId);
     try {
@@ -99,8 +117,10 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username: trimmedUsername,
+          email: trimmedEmail,
           role: editState.role,
           isActive: editState.isActive,
+          receiveOrderNotifications: editState.role === "DRIVER" ? editState.receiveOrderNotifications : false,
           password: editState.password.trim() || undefined,
         }),
       });
@@ -163,12 +183,25 @@ export default function SettingsPage() {
       return;
     }
 
+    const trimmedEmail = email.trim();
+    if (role === "DRIVER" && !trimmedEmail) {
+      setCreateError("Жолоочийн имэйл заавал бөглөнө");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: trimmedUsername, password, role, isActive }),
+        body: JSON.stringify({
+          username: trimmedUsername,
+          email: trimmedEmail,
+          password,
+          role,
+          isActive,
+          receiveOrderNotifications: role === "DRIVER" ? receiveOrderNotifications : false,
+        }),
       });
 
       const data = await response.json();
@@ -180,9 +213,11 @@ export default function SettingsPage() {
 
       setCreateSuccess(data?.message || "Хэрэглэгч амжилттай үүслээ");
       setUsername("");
+      setEmail("");
       setPassword("");
       setRole("OPERATOR");
       setIsActive(true);
+      setReceiveOrderNotifications(false);
       await loadUsers();
     } catch {
       setCreateError("Сүлжээний алдаа гарлаа");
@@ -212,7 +247,13 @@ export default function SettingsPage() {
                 id="new-user-role"
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 value={role}
-                onChange={(event) => setRole(event.target.value as UserRole)}
+                onChange={(event) => {
+                  const nextRole = event.target.value as UserRole;
+                  setRole(nextRole);
+                  if (nextRole !== "DRIVER") {
+                    setReceiveOrderNotifications(false);
+                  }
+                }}
               >
                 <option value="ADMIN">Админ</option>
                 <option value="DRIVER">Жолооч</option>
@@ -237,6 +278,27 @@ export default function SettingsPage() {
               onChange={(event) => setPassword(event.target.value)}
               required
             />
+            <Input
+              id="new-user-email"
+              label="Имэйл"
+              type="email"
+              placeholder={role === "DRIVER" ? "Жолоочийн имэйл (заавал)" : "Хоосон орхивол auto email үүсгэнэ"}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required={role === "DRIVER"}
+            />
+
+            {role === "DRIVER" && (
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={receiveOrderNotifications}
+                  onChange={(event) => setReceiveOrderNotifications(event.target.checked)}
+                />
+                Захиалга хуваарилахад mail илгээх үү
+              </label>
+            )}
 
             <div className="space-y-1.5">
               <label htmlFor="new-user-active" className="block text-sm font-medium text-slate-700">
@@ -299,6 +361,8 @@ export default function SettingsPage() {
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-slate-500">
                     <th className="py-2 pr-3 font-medium">Нэвтрэх нэр</th>
+                    <th className="py-2 pr-3 font-medium">Имэйл</th>
+                    <th className="py-2 pr-3 font-medium">Mail илгээх</th>
                     <th className="py-2 pr-3 font-medium">Нууц үг</th>
                     <th className="py-2 pr-3 font-medium">Эрх</th>
                     <th className="py-2 pr-3 font-medium">Төлөв</th>
@@ -331,6 +395,49 @@ export default function SettingsPage() {
                         <td className="py-2 pr-3">
                           {isEditing ? (
                             <input
+                              type="email"
+                              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editState.email}
+                              onChange={(event) =>
+                                setEditState((prev) =>
+                                  prev ? { ...prev, email: event.target.value } : prev
+                                )
+                              }
+                              placeholder={editState.role === "DRIVER" ? "Жолоочийн имэйл (заавал)" : "Имэйл"}
+                              required={editState.role === "DRIVER"}
+                            />
+                          ) : (
+                            <span className="text-slate-700">{user.email}</span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {isEditing ? (
+                            editState.role === "DRIVER" ? (
+                              <label className="inline-flex items-center gap-2 text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-slate-300"
+                                  checked={editState.receiveOrderNotifications}
+                                  onChange={(event) =>
+                                    setEditState((prev) =>
+                                      prev ? { ...prev, receiveOrderNotifications: event.target.checked } : prev
+                                    )
+                                  }
+                                />
+                                Тийм
+                              </label>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )
+                          ) : (
+                            <span className="text-slate-700">
+                              {user.role === "DRIVER" ? (user.receiveOrderNotifications ? "Тийм" : "Үгүй") : "-"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {isEditing ? (
+                            <input
                               type="password"
                               className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                               value={editState.password}
@@ -352,7 +459,13 @@ export default function SettingsPage() {
                               value={editState.role}
                               onChange={(event) =>
                                 setEditState((prev) =>
-                                  prev ? { ...prev, role: event.target.value as UserRole } : prev
+                                  prev ? {
+                                    ...prev,
+                                    role: event.target.value as UserRole,
+                                    receiveOrderNotifications: event.target.value === "DRIVER"
+                                      ? prev.receiveOrderNotifications
+                                      : false,
+                                  } : prev
                                 )
                               }
                             >
