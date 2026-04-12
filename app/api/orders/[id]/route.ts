@@ -964,25 +964,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
     });
 
     if (didChangeDriver && targetDriverId && targetDriverEmail && targetDriverReceiveNotifications) {
-      try {
-        await sendDriverAssignmentEmail({
-          driverEmail: targetDriverEmail,
-          driverName: targetDriverName ?? updated.assignedTo?.name ?? "Driver",
-          orderNumber: updated.orderNumber,
-          customerName: updated.customer.name,
-          customerPhone: updated.customer.phone,
-          shippingAddress: updated.shippingAddress ?? updated.customer.address ?? null,
-          status: String(updated.status ?? ""),
-          assignedBy: session.user.name ?? "Operator",
-          items: updated.items.map((item) => ({
-            name: item.name,
-            qty: Number(item.qty),
-          })),
-          totalAmount: Number(updated.total),
-        });
-      } catch (emailError) {
+      sendDriverAssignmentEmail({
+        driverEmail: targetDriverEmail,
+        driverName: targetDriverName ?? updated.assignedTo?.name ?? "Driver",
+        orderNumber: updated.orderNumber,
+        customerName: updated.customer.name,
+        customerPhone: updated.customer.phone,
+        shippingAddress: updated.shippingAddress ?? updated.customer.address ?? null,
+        status: String(updated.status ?? ""),
+        assignedBy: session.user.name ?? "Operator",
+        items: updated.items.map((item) => ({
+          name: item.name,
+          qty: Number(item.qty),
+        })),
+        totalAmount: Number(updated.total),
+      }).catch((emailError) => {
         console.error("Failed to send driver assignment email", emailError);
-      }
+      });
     }
 
     return NextResponse.json(updated);
