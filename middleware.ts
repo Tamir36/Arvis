@@ -12,6 +12,11 @@ export default async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Allow diagnostic test-mail endpoint without auth
+  if (pathname === "/api/admin/test-mail") {
+    return NextResponse.next();
+  }
+
   // Try secure cookie name first (production HTTPS), then non-secure (fallback).
   let token = await getToken({ req, secret, secureCookie: true });
   if (!token) {
