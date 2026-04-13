@@ -417,6 +417,7 @@ export async function GET(req: NextRequest) {
     const phone = searchParams.get("phone") ?? "";
     const address = searchParams.get("address") ?? "";
     const product = searchParams.get("product") ?? "";
+    const productIdsParam = searchParams.get("productIds") ?? "";
     const statusesParam = searchParams.get("statuses") ?? "";
     const driverIdsParam = searchParams.get("driverIds") ?? "";
     const fromDate = searchParams.get("fromDate");
@@ -433,6 +434,14 @@ export async function GET(req: NextRequest) {
         driverIdsParam
           .split(",")
           .map((driverId) => driverId.trim())
+          .filter(Boolean),
+      ),
+    );
+    const requestedProductIds = Array.from(
+      new Set(
+        productIdsParam
+          .split(",")
+          .map((productId) => productId.trim())
           .filter(Boolean),
       ),
     );
@@ -798,6 +807,16 @@ export async function GET(req: NextRequest) {
           { items: { some: { name: { contains: product } } } },
           { items: { some: { product: { name: { contains: product } } } } },
         ],
+      });
+    }
+
+    if (requestedProductIds.length > 0) {
+      andFilters.push({
+        items: {
+          some: {
+            productId: { in: requestedProductIds },
+          },
+        },
       });
     }
 

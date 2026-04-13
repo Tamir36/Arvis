@@ -592,17 +592,28 @@ export default function OperatorOrdersPage() {
       .reduce((sum, item) => sum + item.safeLinePrice, 0);
   }, [registrationLineItems]);
 
+  const allDriverFilterValues = useMemo(
+    () => [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)],
+    [drivers],
+  );
+
+  const isAllDriversSelected = useMemo(
+    () => allDriverFilterValues.length > 0 && allDriverFilterValues.every((value) => driverFilter.includes(value)),
+    [allDriverFilterValues, driverFilter],
+  );
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const driverId = order.assignedTo?.id ?? order.delivery?.agent?.userId ?? "";
       const hasUnassignedDriverFilter = driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE);
       const matchesDriver = driverFilter.length === 0
+        || isAllDriversSelected
         || (driverId ? driverFilter.includes(driverId) : hasUnassignedDriverFilter);
       const matchesStatus = statusFilter.length === 0 || statusFilter.includes(order.status);
       const matchesProduct = registeredProductFilter.length === 0 || order.items.some((item) => registeredProductFilter.includes(item.product.id));
       return matchesDriver && matchesStatus && matchesProduct;
     });
-  }, [orders, driverFilter, statusFilter, registeredProductFilter]);
+  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter]);
 
   const productFilterOptions = useMemo<FilterProductOption[]>(() => {
     const map = new Map<string, string>();
@@ -636,10 +647,6 @@ export default function OperatorOrdersPage() {
   }, [productFilterOptions, products, registeredProductFilter]);
 
   const driverFilterLabel = useMemo(() => {
-    const allDriverFilterValues = [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)];
-    const isAllDriversSelected = allDriverFilterValues.length > 0
-      && allDriverFilterValues.every((value) => driverFilter.includes(value));
-
     if (isAllDriversSelected) return "Бүгд";
     if (driverFilter.length === 0) return "Жолооч";
     if (driverFilter.length === 1) {
@@ -649,7 +656,7 @@ export default function OperatorOrdersPage() {
       return drivers.find((driver) => driver.id === driverFilter[0])?.name ?? "Жолооч";
     }
     return `${driverFilter.length} жолооч сонгосон`;
-  }, [driverFilter, drivers]);
+  }, [driverFilter, drivers, isAllDriversSelected]);
 
   const statusFilterLabel = useMemo(() => {
     const allStatusValues = STATUS_OPTIONS.map((option) => option.value);
@@ -732,10 +739,12 @@ export default function OperatorOrdersPage() {
       const params = new URLSearchParams({ limit: String(orderFetchLimit), includeCount: "0" });
       if (normalizedFilterFromDate) params.set("fromDate", normalizedFilterFromDate);
       if (normalizedFilterToDate) params.set("toDate", normalizedFilterToDate);
-      const hasUnassignedDriverFilter = driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE);
       const selectedDriverIds = driverFilter.filter((driverId) => driverId !== UNASSIGNED_DRIVER_FILTER_VALUE);
-      if (!hasUnassignedDriverFilter && selectedDriverIds.length > 0) {
+      if (!isAllDriversSelected && selectedDriverIds.length > 0) {
         params.set("driverIds", selectedDriverIds.join(","));
+      }
+      if (registeredProductFilter.length > 0) {
+        params.set("productIds", registeredProductFilter.join(","));
       }
       if (statusFilter.length > 0) params.set("statuses", statusFilter.join(","));
       if (debouncedPhoneSearch.trim()) params.set("phone", debouncedPhoneSearch.trim());
@@ -822,6 +831,8 @@ export default function OperatorOrdersPage() {
     normalizedFilterFromDate,
     normalizedFilterToDate,
     driverFilter,
+    isAllDriversSelected,
+    registeredProductFilter,
     statusFilter,
     debouncedPhoneSearch,
     debouncedAddressSearch,
@@ -1208,9 +1219,7 @@ export default function OperatorOrdersPage() {
   };
 
   const selectAllDrivers = () => {
-    const allDrivers = [UNASSIGNED_DRIVER_FILTER_VALUE, ...drivers.map((driver) => driver.id)];
-    const areAllSelected = allDrivers.length > 0 && allDrivers.every((value) => driverFilter.includes(value));
-    setDriverFilter(areAllSelected ? [] : allDrivers);
+    setDriverFilter(isAllDriversSelected ? [] : allDriverFilterValues);
   };
 
   const selectAllStatuses = () => {
