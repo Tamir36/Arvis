@@ -37,19 +37,18 @@ interface DashboardData {
   recentOrders: any[];
   lowStockProducts: any[];
   monthlyData: Array<{ day: string; revenue: number; totalOrders: number }>;
-  statusData: Array<{ day: string; PENDING: number; CONFIRMED: number; PACKED: number; SHIPPED: number; DELIVERED: number; CANCELLED: number; RETURNED: number }>;
+  statusData: Array<{ day: string; BLANK: number; PENDING: number; CONFIRMED: number; DELIVERED: number; CANCELLED: number; RETURNED: number }>;
   selectedYear: number;
   selectedMonth: number;
 }
 
 const STATUS_META = [
-  { key: "PENDING", color: "#2563eb", label: "PENDING" },
-  { key: "CONFIRMED", color: "#f97316", label: "CONFIRMED" },
-  { key: "PACKED", color: "#a855f7", label: "PACKED" },
-  { key: "SHIPPED", color: "#0ea5e9", label: "SHIPPED" },
-  { key: "DELIVERED", color: "#10b981", label: "DELIVERED" },
-  { key: "CANCELLED", color: "#6b7280", label: "CANCELLED" },
-  { key: "RETURNED", color: "#ef4444", label: "RETURNED" },
+  { key: "BLANK", color: "#94a3b8", label: "Blank" },
+  { key: "PENDING", color: "#2563eb", label: "Хүлээгдэж байгаа" },
+  { key: "CONFIRMED", color: "#f97316", label: "Хуваарилсан" },
+  { key: "DELIVERED", color: "#10b981", label: "Хүргэгдсэн" },
+  { key: "CANCELLED", color: "#6b7280", label: "Цуцалсан" },
+  { key: "RETURNED", color: "#ef4444", label: "Хойшлуулсан" },
 ] as const;
 
 export default function AdminDashboard() {
@@ -208,7 +207,10 @@ export default function AdminDashboard() {
                   <Bar key={status.key} dataKey={status.key} stackId="status" fill={status.color} name={status.label} />
                 ))}
                 <Legend iconType="circle" iconSize={8} formatter={(v) => <span style={{ fontSize: 11, color: "#64748b" }}>{v}</span>} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }} />
+                <Tooltip
+                  contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }}
+                  formatter={(value: number, name: string) => [value, name]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </Card>

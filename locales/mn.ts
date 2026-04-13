@@ -50,6 +50,7 @@ export const mn = {
     OUT_OF_STOCK: "Дуусгавар",
 
     // Order status
+    BLANK: "Blank",
     PENDING: "Хүлээгдэж байна",
     CONFIRMED: "Баталгаажсан",
     PACKED: "Савласан",

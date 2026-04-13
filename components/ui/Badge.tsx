@@ -57,6 +57,7 @@ export default function Badge({ variant = "default", className, children, dot }:
 // Utility to map status strings to badge variants
 export function orderStatusBadge(status: string): BadgeVariant {
   const map: Record<string, BadgeVariant> = {
+    BLANK: "default",
     PENDING: "warning",
     CONFIRMED: "info",
     PACKED: "purple",

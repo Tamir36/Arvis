@@ -52,6 +52,7 @@ export function truncate(str: string, length = 50): string {
 
 export function getOrderStatusColor(status: string): string {
   const colors: Record<string, string> = {
+    BLANK: "bg-white text-slate-500",
     PENDING: "bg-yellow-100 text-yellow-800",
     CONFIRMED: "bg-blue-100 text-blue-800",
     PACKED: "bg-indigo-100 text-indigo-800",

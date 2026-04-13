@@ -15,9 +15,9 @@ const CONTACT_LABELS: Record<string, string> = {
   BUSY: "Завгүй",
 };
 
-const ALL_ORDER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
+const ALL_ORDER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
 
-const ROLLOVER_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
+const ROLLOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
@@ -1025,9 +1025,9 @@ export async function POST(req: NextRequest) {
     }
 
     const requestedStatus = typeof body.status === "string" && body.status.trim() ? String(body.status).trim() : "";
-    const initialStatus = assignedDriverId && (!requestedStatus || requestedStatus === "PENDING")
+    const initialStatus = assignedDriverId && (!requestedStatus || requestedStatus === "PENDING" || requestedStatus === "BLANK")
       ? "CONFIRMED"
-      : (requestedStatus || "PENDING");
+      : (requestedStatus || "BLANK");
 
     const isInitiallyReserved = assignedDriverId
       && DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES.includes(initialStatus as typeof DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES[number]);

@@ -140,6 +140,7 @@ interface RegistrationItem {
 const INPUT_CLASS = "w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
 const STATUS_OPTIONS: Array<{ value: string; label: string; className: string }> = [
+  { value: "BLANK", label: "Blank", className: "bg-white text-slate-500 border-slate-200" },
   { value: "PENDING", label: "Хүлээгдэж байгаа", className: "bg-sky-100 text-sky-700 border-sky-200" },
   { value: "CONFIRMED", label: "Хувиарласан", className: "bg-indigo-100 text-indigo-700 border-indigo-200" },
   { value: "DELIVERED", label: "Хүргэгдсэн", className: "bg-green-100 text-green-700 border-green-200" },
@@ -147,7 +148,7 @@ const STATUS_OPTIONS: Array<{ value: string; label: string; className: string }>
   { value: "RETURNED", label: "Хойшлуулсан", className: "bg-slate-100 text-slate-700 border-slate-200" },
 ];
 
-const REGISTRATION_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "PENDING");
+const REGISTRATION_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "PENDING" && option.value !== "BLANK");
 const ORDER_LIMIT_OPTIONS = [200, 400, 600] as const;
 const UNASSIGNED_DRIVER_FILTER_VALUE = "__UNASSIGNED__";
 
@@ -156,7 +157,7 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   PAID: "Төлсөн",
 };
 
-const CARRYOVER_STATUSES = new Set(["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"]);
+const CARRYOVER_STATUSES = new Set(["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"]);
 
 function getStatusLabel(status: string): string {
   return STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status;
@@ -1983,7 +1984,7 @@ export default function OperatorOrdersPage() {
                       ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
 
                     return (
-                      <tr key={order.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                      <tr key={order.id} className="border-b border-slate-100 hover:bg-blue-100 transition-colors">
                         <td className="px-2 py-1.5 text-slate-500">{index + 1}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap text-slate-700">{formatDateOnly(orderDisplayDate)}</td>
                         <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{order.customer.phone}</td>

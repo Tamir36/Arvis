@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
-const REPORT_STATUSES = ["PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
+const REPORT_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
+const CARRYOVER_STATUSES = new Set(["BLANK", "PENDING", "CONFIRMED", "RETURNED"]);
+const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
 
 function parseYearMonth(req: NextRequest): { year: number; month: number } {
   const now = new Date();
@@ -28,8 +31,225 @@ function dateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function businessDateKey(date: Date): string {
+  const shifted = new Date(date.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function shortDayLabel(date: Date): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function businessDayStart(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+}
+
+function nextBusinessDay(date: Date): Date {
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
+}
+
+function businessTodayStart(date = new Date()): Date {
+  const shifted = new Date(date.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+  return businessDayStart(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
+}
+
+function filterOrderIdsByDate(
+  rows: Array<{ orderId: string; changedAt: Date | null }>,
+  dayStart: Date,
+  dayEnd: Date,
+): string[] {
+  return rows
+    .filter((row) => {
+      if (!row.changedAt) return false;
+      return row.changedAt >= dayStart && row.changedAt <= dayEnd;
+    })
+    .map((row) => row.orderId);
+}
+
+function buildDailyStatusWhere(params: {
+  dayStart: Date;
+  dayEnd: Date;
+  todayStart: Date;
+  deliveredOrderIds: string[];
+  cancelledOrderIds: string[];
+  returnedOrderIds: string[];
+}): Prisma.OrderWhereInput {
+  const { dayStart, dayEnd, todayStart, deliveredOrderIds, cancelledOrderIds, returnedOrderIds } = params;
+  const includesToday = dayStart.getTime() === todayStart.getTime();
+  const dateRange: Prisma.DateTimeFilter = {
+    gte: dayStart,
+    lte: dayEnd,
+  };
+
+  const deliveredInRangeFilter: Prisma.OrderWhereInput = {
+    OR: [
+      {
+        AND: [
+          { status: "DELIVERED" },
+          { id: { in: deliveredOrderIds } },
+        ],
+      },
+      {
+        AND: [
+          { status: "DELIVERED" },
+          {
+            auditLogs: {
+              none: {
+                action: "STATUS_CHANGED",
+                newValue: "DELIVERED",
+              },
+            },
+          },
+          { updatedAt: dateRange },
+        ],
+      },
+    ],
+  };
+
+  const cancelledInRangeFilter: Prisma.OrderWhereInput = {
+    OR: [
+      {
+        AND: [
+          { status: "CANCELLED" },
+          { id: { in: cancelledOrderIds } },
+        ],
+      },
+      {
+        AND: [
+          { status: "CANCELLED" },
+          {
+            auditLogs: {
+              none: {
+                action: "STATUS_CHANGED",
+                newValue: "CANCELLED",
+              },
+            },
+          },
+          { updatedAt: dateRange },
+        ],
+      },
+    ],
+  };
+
+  const returnedInRangeFilter: Prisma.OrderWhereInput = {
+    OR: [
+      {
+        AND: [
+          { status: "RETURNED" },
+          { id: { in: returnedOrderIds } },
+        ],
+      },
+      {
+        AND: [
+          { status: "RETURNED" },
+          {
+            delivery: {
+              is: {
+                timeSlot: {
+                  is: {
+                    date: dateRange,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        AND: [
+          { status: "RETURNED" },
+          {
+            auditLogs: {
+              none: {
+                action: "STATUS_CHANGED",
+                newValue: "RETURNED",
+              },
+            },
+          },
+          { updatedAt: dateRange },
+        ],
+      },
+    ],
+  };
+
+  const nonTerminalStatusFilter: Prisma.OrderWhereInput = {
+    status: { notIn: ["DELIVERED", "CANCELLED"] as any },
+  };
+
+  const dateOrFilters: Prisma.OrderWhereInput[] = [
+    deliveredInRangeFilter,
+    cancelledInRangeFilter,
+    returnedInRangeFilter,
+    {
+      ...nonTerminalStatusFilter,
+      delivery: {
+        is: {
+          timeSlot: {
+            is: {
+              date: dateRange,
+            },
+          },
+        },
+      },
+    },
+    {
+      AND: [
+        {
+          OR: [
+            { delivery: { is: null } },
+            { delivery: { is: { timeSlotId: null } } },
+          ],
+        },
+        nonTerminalStatusFilter,
+        {
+          createdAt: dateRange,
+        },
+      ],
+    },
+  ];
+
+  if (includesToday) {
+    dateOrFilters.push({
+      AND: [
+        {
+          status: { in: Array.from(CARRYOVER_STATUSES) as any },
+        },
+        {
+          createdAt: { lt: todayStart },
+        },
+        {
+          OR: [
+            { delivery: { is: null } },
+            { delivery: { is: { timeSlotId: null } } },
+            {
+              delivery: {
+                is: {
+                  timeSlot: {
+                    is: {
+                      date: { lt: todayStart },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+  }
+
+  const andFilters: Prisma.OrderWhereInput[] = [{ OR: dateOrFilters }];
+
+  if (!includesToday) {
+    andFilters.push({
+      status: { notIn: Array.from(CARRYOVER_STATUSES) as any },
+    });
+  }
+
+  return { AND: andFilters };
 }
 
 export async function GET(req: NextRequest) {
@@ -41,9 +261,11 @@ export async function GET(req: NextRequest) {
     }
 
     const { year, month } = parseYearMonth(req);
-    const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
-    const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+    const monthStart = businessDayStart(year, month, 1);
     const days = new Date(year, month, 0).getDate();
+    const monthLastDayStart = businessDayStart(year, month, days);
+    const monthEnd = new Date(nextBusinessDay(monthLastDayStart).getTime() - 1);
+    const todayStart = businessTodayStart();
 
     const [
       totalOrders,
@@ -76,16 +298,19 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const [ordersInMonth, deliveredOrdersInMonth] = await Promise.all([
-      prisma.order.findMany({
+    const [statusChangeLogs, deliveredOrdersInMonth] = await Promise.all([
+      prisma.orderAuditLog.findMany({
         where: {
+          action: "STATUS_CHANGED",
+          newValue: { in: ["DELIVERED", "CANCELLED", "RETURNED"] },
           createdAt: { gte: monthStart, lte: monthEnd },
         },
         select: {
-          status: true,
-          total: true,
+          orderId: true,
+          newValue: true,
           createdAt: true,
         },
+        orderBy: { createdAt: "desc" },
       }),
       prisma.order.findMany({
         where: {
@@ -134,6 +359,16 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const deliveredLatestLogs = statusChangeLogs
+      .filter((log) => log.newValue === "DELIVERED")
+      .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
+    const cancelledLatestLogs = statusChangeLogs
+      .filter((log) => log.newValue === "CANCELLED")
+      .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
+    const returnedLatestLogs = statusChangeLogs
+      .filter((log) => log.newValue === "RETURNED")
+      .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
+
     const dailyMap = new Map<string, {
       dayLabel: string;
       totalOrders: number;
@@ -151,14 +386,33 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    for (const order of ordersInMonth) {
-      const key = dateKey(order.createdAt);
+    for (let day = 1; day <= days; day += 1) {
+      const dayStart = businessDayStart(year, month, day);
+      const dayEnd = new Date(nextBusinessDay(dayStart).getTime() - 1);
+      const key = businessDateKey(dayStart);
       const row = dailyMap.get(key);
       if (!row) continue;
 
-      row.totalOrders += 1;
-      const status = String(order.status).toUpperCase();
-      if (status in row.statuses) {
+      const dayWhere = buildDailyStatusWhere({
+        dayStart,
+        dayEnd,
+        todayStart,
+        deliveredOrderIds: filterOrderIdsByDate(deliveredLatestLogs, dayStart, dayEnd),
+        cancelledOrderIds: filterOrderIdsByDate(cancelledLatestLogs, dayStart, dayEnd),
+        returnedOrderIds: filterOrderIdsByDate(returnedLatestLogs, dayStart, dayEnd),
+      });
+
+      const dayOrders = await prisma.order.findMany({
+        where: dayWhere,
+        select: {
+          status: true,
+        },
+      });
+
+      for (const order of dayOrders) {
+        const status = String(order.status).toUpperCase();
+        if (!(status in row.statuses)) continue;
+        row.totalOrders += 1;
         row.statuses[status] += 1;
       }
     }
