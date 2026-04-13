@@ -67,6 +67,18 @@ function parseStockAuditMeta(raw: string | null): { reason: string | null; drive
   }
 }
 
+function isRealSalesAdjustment(action: string, reason: string | null): boolean {
+  if (action === "DRIVER_STOCK_DEDUCTED") {
+    return reason === "delivered" || reason === "delivered_items_changed";
+  }
+
+  if (action === "DRIVER_STOCK_RESTORED") {
+    return reason === "cancelled" || reason === "delivered_items_changed";
+  }
+
+  return false;
+}
+
 async function generateUniqueSlugForUpdate(name: string, productId: string): Promise<string> {
   const baseSlug = generateSlug(name) || `product-${Date.now()}`;
   let candidate = baseSlug;
@@ -174,13 +186,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<Params
       })),
       salesHistory: salesLogs
         .map((log) => {
+          const meta = parseStockAuditMeta(log.newValue);
+          if (!isRealSalesAdjustment(log.action, meta.reason)) return null;
+
           const qty = parseAuditItems(log.newValue)
             .filter((item) => item.productId === id)
             .reduce((sum, item) => sum + item.qty, 0);
 
           if (qty <= 0) return null;
 
-          const meta = parseStockAuditMeta(log.newValue);
           const resolvedDriver = meta.driverName
             ? { id: meta.driverId ?? log.order.assignedTo?.id ?? "", name: meta.driverName }
             : log.order.assignedTo;
@@ -341,13 +355,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       })),
       salesHistory: salesLogs
         .map((log) => {
+          const meta = parseStockAuditMeta(log.newValue);
+          if (!isRealSalesAdjustment(log.action, meta.reason)) return null;
+
           const qty = parseAuditItems(log.newValue)
             .filter((item) => item.productId === id)
             .reduce((sum, item) => sum + item.qty, 0);
 
           if (qty <= 0) return null;
 
-          const meta = parseStockAuditMeta(log.newValue);
           const resolvedDriver = meta.driverName
             ? { id: meta.driverId ?? log.order.assignedTo?.id ?? "", name: meta.driverName }
             : log.order.assignedTo;

@@ -188,6 +188,45 @@ function getEffectiveDeliveryDate(order: {
   return slotDate ?? order.updatedAt;
 }
 
+function parseStockAuditMeta(raw: string | null): { reason: string | null; driverId: string | null; driverName: string | null } {
+  if (!raw) {
+    return { reason: null, driverId: null, driverName: null };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { reason: null, driverId: null, driverName: null };
+    }
+
+    return {
+      reason: typeof (parsed as { reason?: unknown }).reason === "string"
+        ? (parsed as { reason: string }).reason
+        : null,
+      driverId: typeof (parsed as { driverId?: unknown }).driverId === "string"
+        ? (parsed as { driverId: string }).driverId
+        : null,
+      driverName: typeof (parsed as { driverName?: unknown }).driverName === "string"
+        ? (parsed as { driverName: string }).driverName
+        : null,
+    };
+  } catch {
+    return { reason: null, driverId: null, driverName: null };
+  }
+}
+
+function isRealSalesAdjustment(action: string, reason: string | null): boolean {
+  if (action === "DRIVER_STOCK_DEDUCTED") {
+    return reason === "delivered" || reason === "delivered_items_changed";
+  }
+
+  if (action === "DRIVER_STOCK_RESTORED") {
+    return reason === "cancelled" || reason === "delivered_items_changed";
+  }
+
+  return false;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await auth();
@@ -335,11 +374,16 @@ export async function GET(req: NextRequest) {
         effectiveDate: effectiveDate.toISOString(),
       }));
 
+    const filteredStockHistory = stockHistory.filter((log) => {
+      const meta = parseStockAuditMeta(log.newValue);
+      return isRealSalesAdjustment(log.action, meta.reason);
+    });
+
     return NextResponse.json({
       selectedDate: searchParams.get("date") ?? `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, "0")}-${String(selectedDate.getDate()).padStart(2, "0")}`,
       deliveries,
       stocks: driverStocks,
-      stockHistory,
+      stockHistory: filteredStockHistory,
     });
   } catch (error) {
     console.error(error);
