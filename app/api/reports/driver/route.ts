@@ -4,15 +4,25 @@ import { prisma } from "@/lib/db";
 
 const DELIVERY_FEE_PER_ORDER = 6000;
 const DRIVER_REPORT_TERMINAL_STATUSES = ["DELIVERED", "CANCELLED", "RETURNED"] as const;
+const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
+
+function businessDayStart(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+}
+
+function nextBusinessDay(date: Date): Date {
+  return new Date(date.getTime() + 24 * 60 * 60 * 1000);
+}
 
 function parseDateKey(value: string | null): Date {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const shifted = new Date(now.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+    return businessDayStart(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
   }
 
   const [y, m, d] = value.split("-").map(Number);
-  return new Date(y, m - 1, d);
+  return businessDayStart(y, m, d);
 }
 
 function computeOrderAmounts(total: number, status: string, paymentStatus: string) {
@@ -38,12 +48,8 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const targetDate = parseDateKey(searchParams.get("date"));
-  const y = targetDate.getFullYear();
-  const m = targetDate.getMonth();
-  const d = targetDate.getDate();
-
-  const dayStart = new Date(y, m, d, 0, 0, 0, 0);
-  const dayEnd = new Date(y, m, d, 23, 59, 59, 999);
+  const dayStart = targetDate;
+  const dayEnd = new Date(nextBusinessDay(dayStart).getTime() - 1);
   const role = String(session.user.role ?? "").toUpperCase();
 
   // Fetch terminal orders first; day filtering is applied by the latest status-change timestamp for each order's current status.

@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const REPORT_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
 const CARRYOVER_STATUSES = new Set(["BLANK", "PENDING", "CONFIRMED", "RETURNED"]);
+const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED"] as const;
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
 
 function parseYearMonth(req: NextRequest): { year: number; month: number } {
@@ -176,7 +177,7 @@ function buildDailyStatusWhere(params: {
   };
 
   const nonTerminalStatusFilter: Prisma.OrderWhereInput = {
-    status: { notIn: ["DELIVERED", "CANCELLED"] as any },
+    status: { notIn: ["DELIVERED", "CANCELLED", "RETURNED"] as any },
   };
 
   const dateOrFilters: Prisma.OrderWhereInput[] = [
@@ -245,7 +246,7 @@ function buildDailyStatusWhere(params: {
 
   if (!includesToday) {
     andFilters.push({
-      status: { notIn: Array.from(CARRYOVER_STATUSES) as any },
+      status: { notIn: Array.from(HISTORICAL_EXCLUDED_CARRYOVER_STATUSES) as any },
     });
   }
 
@@ -421,7 +422,7 @@ export async function GET(req: NextRequest) {
       const deliveredAt = latestDeliveredAtByOrder.get(order.id) ?? order.updatedAt;
       if (deliveredAt < monthStart || deliveredAt > monthEnd) continue;
 
-      const key = dateKey(deliveredAt);
+      const key = businessDateKey(deliveredAt);
       const row = dailyMap.get(key);
       if (!row) continue;
 

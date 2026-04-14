@@ -18,6 +18,7 @@ const CONTACT_LABELS: Record<string, string> = {
 const ALL_ORDER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
 
 const ROLLOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
+const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED"] as const;
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
@@ -664,7 +665,7 @@ export async function GET(req: NextRequest) {
         if (!hasStatusFilter || nonTerminalStatuses.length > 0) {
           const nonTerminalStatusFilter: Prisma.OrderWhereInput = nonTerminalStatuses.length > 0
             ? { status: { in: nonTerminalStatuses as any } }
-            : { status: { notIn: ["DELIVERED", "CANCELLED"] } };
+            : { status: { notIn: ["DELIVERED", "CANCELLED", "RETURNED"] } };
 
           dateOrFilters.push({
             ...nonTerminalStatusFilter,
@@ -735,7 +736,9 @@ export async function GET(req: NextRequest) {
 
         if (!includesToday) {
           if (hasStatusFilter) {
-            const noTodayStatuses = requestedStatuses.filter((status) => !ROLLOVER_STATUSES.includes(status as any));
+            const noTodayStatuses = requestedStatuses.filter(
+              (status) => !(HISTORICAL_EXCLUDED_CARRYOVER_STATUSES as readonly string[]).includes(status),
+            );
             if (noTodayStatuses.length > 0) {
               andFilters.push({ status: { in: noTodayStatuses as any } });
             } else {
@@ -743,7 +746,7 @@ export async function GET(req: NextRequest) {
             }
           } else {
             andFilters.push({
-              status: { notIn: [...ROLLOVER_STATUSES] },
+              status: { notIn: [...HISTORICAL_EXCLUDED_CARRYOVER_STATUSES] },
             });
           }
         }
