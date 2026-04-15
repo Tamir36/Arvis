@@ -1978,9 +1978,7 @@ export default function OperatorOrdersPage() {
                     const todayLocal = getTodayLocal();
                     const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
                     const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
-                    const orderDisplayDate = order.status === "RETURNED"
-                      ? carryoverDisplayDate
-                      : order.delivery?.timeSlot?.date
+                    const orderDisplayDate = order.delivery?.timeSlot?.date
                       ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
 
                     return (

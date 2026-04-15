@@ -523,27 +523,6 @@ export async function GET(req: NextRequest) {
           })
           .map((row) => row.orderId);
 
-        const returnedLatestLogs = await prisma.orderAuditLog.groupBy({
-          by: ["orderId"],
-          where: {
-            action: "STATUS_CHANGED",
-            newValue: "RETURNED",
-          },
-          _max: {
-            createdAt: true,
-          },
-        });
-
-        const returnedOrderIds = returnedLatestLogs
-          .filter((row) => {
-            const ts = row._max.createdAt;
-            if (!ts) return false;
-            if (dateRange.gte && ts < dateRange.gte) return false;
-            if (dateRange.lte && ts > dateRange.lte) return false;
-            return true;
-          })
-          .map((row) => row.orderId);
-
         const deliveredInRangeFilter: Prisma.OrderWhereInput = {
           OR: [
             {
@@ -600,12 +579,6 @@ export async function GET(req: NextRequest) {
 
         const returnedInRangeFilter: Prisma.OrderWhereInput = {
           OR: [
-            {
-              AND: [
-                { status: "RETURNED" },
-                { id: { in: returnedOrderIds } },
-              ],
-            },
             {
               AND: [
                 { status: "RETURNED" },

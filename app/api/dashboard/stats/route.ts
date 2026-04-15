@@ -76,9 +76,8 @@ function buildDailyStatusWhere(params: {
   todayStart: Date;
   deliveredOrderIds: string[];
   cancelledOrderIds: string[];
-  returnedOrderIds: string[];
 }): Prisma.OrderWhereInput {
-  const { dayStart, dayEnd, todayStart, deliveredOrderIds, cancelledOrderIds, returnedOrderIds } = params;
+  const { dayStart, dayEnd, todayStart, deliveredOrderIds, cancelledOrderIds } = params;
   const includesToday = dayStart.getTime() === todayStart.getTime();
   const dateRange: Prisma.DateTimeFilter = {
     gte: dayStart,
@@ -137,12 +136,6 @@ function buildDailyStatusWhere(params: {
 
   const returnedInRangeFilter: Prisma.OrderWhereInput = {
     OR: [
-      {
-        AND: [
-          { status: "RETURNED" },
-          { id: { in: returnedOrderIds } },
-        ],
-      },
       {
         AND: [
           { status: "RETURNED" },
@@ -366,9 +359,6 @@ export async function GET(req: NextRequest) {
     const cancelledLatestLogs = statusChangeLogs
       .filter((log) => log.newValue === "CANCELLED")
       .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
-    const returnedLatestLogs = statusChangeLogs
-      .filter((log) => log.newValue === "RETURNED")
-      .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
 
     const dailyMap = new Map<string, {
       dayLabel: string;
@@ -400,7 +390,6 @@ export async function GET(req: NextRequest) {
         todayStart,
         deliveredOrderIds: filterOrderIdsByDate(deliveredLatestLogs, dayStart, dayEnd),
         cancelledOrderIds: filterOrderIdsByDate(cancelledLatestLogs, dayStart, dayEnd),
-        returnedOrderIds: filterOrderIdsByDate(returnedLatestLogs, dayStart, dayEnd),
       });
 
       const dayOrders = await prisma.order.findMany({
