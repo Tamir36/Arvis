@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getLatestStatusChangedAtByOrderStatus } from "@/lib/status-changes";
 
 const DELIVERY_FEE_PER_ORDER = 6000;
 const DRIVER_REPORT_TERMINAL_STATUSES = ["DELIVERED", "CANCELLED", "RETURNED"] as const;
@@ -118,30 +119,10 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "asc" },
   });
 
-  const terminalLogs = orders.length > 0
-    ? await prisma.orderAuditLog.findMany({
-        where: {
-          action: "STATUS_CHANGED",
-          newValue: { in: [...DRIVER_REPORT_TERMINAL_STATUSES] },
-          orderId: { in: orders.map((order) => order.id) },
-        },
-        select: {
-          newValue: true,
-          orderId: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      })
-    : [];
-
-  const latestTerminalAtByOrderStatus = new Map<string, Date>();
-  for (const log of terminalLogs) {
-    const status = String(log.newValue ?? "").toUpperCase();
-    const key = `${log.orderId}:${status}`;
-    if (!latestTerminalAtByOrderStatus.has(key)) {
-      latestTerminalAtByOrderStatus.set(key, log.createdAt);
-    }
-  }
+  const latestTerminalAtByOrderStatus = await getLatestStatusChangedAtByOrderStatus(prisma, {
+    orderIds: orders.map((order) => order.id),
+    statuses: [...DRIVER_REPORT_TERMINAL_STATUSES],
+  });
 
   const filteredOrders = orders.filter((order) => {
     const currentStatus = String(order.status).toUpperCase();

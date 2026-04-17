@@ -50,6 +50,7 @@ const adminNav: AdminNavEntry[] = [
   { type: "section", label: "Тайлан" },
   { type: "item", href: "/admin/reports/driver", label: "Жолоочийн тайлан", icon: <BarChart3 className="w-4.5 h-4.5" /> },
   { type: "item", href: "/admin/reports/operator", label: "Операторын тайлан", icon: <FileText className="w-4.5 h-4.5" /> },
+  { type: "item", href: "/admin/reports/inventory", label: "Бараа материалын тайлан", icon: <ClipboardList className="w-4.5 h-4.5" /> },
 ];
 
 const operatorNav: NavItem[] = [
@@ -57,6 +58,7 @@ const operatorNav: NavItem[] = [
   { type: "item", href: "/operator/orders", label: "Захиалга", icon: <ShoppingCart className="w-4.5 h-4.5" /> },
   { type: "item", href: "/admin/stock", label: "Барааны үлдэгдэл", icon: <PackageCheck className="w-4.5 h-4.5" /> },
   { type: "item", href: "/admin/stock-movements", label: "Бараа бүтээгдэхүүний хөдөлгөөн", icon: <ArrowLeftRight className="w-4.5 h-4.5" /> },
+  { type: "item", href: "/operator/reports/operator", label: "Тайлан", icon: <FileText className="w-4.5 h-4.5" /> },
 ];
 
 const driverNav: NavItem[] = [
@@ -89,7 +91,7 @@ export default function Sidebar() {
   const role = session?.user?.role ?? "";
   const navItems = getNavItems(role);
   const productNavItems = new Set(["/admin/products", "/admin/stock", "/admin/stock-movements"]);
-  const reportNavItems = new Set(["/admin/reports/driver", "/admin/reports/operator"]);
+  const reportNavItems = new Set(["/admin/reports/driver", "/admin/reports/operator", "/admin/reports/inventory"]);
 
   const isActive = (href: string) => {
     if (href === "/admin" || href === "/operator" || href === "/driver") {

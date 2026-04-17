@@ -96,6 +96,7 @@ model Product {
   bundleItems  BundleItem[]   @relation("BundleProduct")
   driverStocks DriverStock[]
   transferItems InventoryTransferItem[]
+  inventoryReportItems InventoryReportItem[]
 
   @@map("products")
 }
@@ -221,6 +222,11 @@ enum InventoryLocationType {
   DRIVER
 }
 
+enum InventoryReportSection {
+  ACTIVE
+  INACTIVE
+}
+
 model InventoryTransfer {
   id           String                @id @default(cuid())
   referenceCode String               @unique
@@ -252,6 +258,20 @@ model InventoryTransferItem {
   @@index([transferId])
   @@index([productId])
   @@map("inventory_transfer_items")
+}
+
+model InventoryReportItem {
+  id        String                 @id @default(cuid())
+  section   InventoryReportSection
+  productId String
+  product   Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  unitPrice Decimal                @db.Decimal(10, 2) @default(0)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  @@unique([section, productId])
+  @@index([section, createdAt])
+  @@map("inventory_report_items")
 }
 
 // ─────────────────────────────────────────────

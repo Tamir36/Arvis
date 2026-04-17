@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { generateOrderNumber } from "@/lib/utils";
+import { getOrderIdsWithLatestStatusInRange } from "@/lib/status-changes";
 import { Prisma } from "@prisma/client";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -481,47 +482,15 @@ export async function GET(req: NextRequest) {
         && (!dateRange.lte || dateRange.lte >= todayStart);
 
       if (dateRange.gte || dateRange.lte) {
-        const deliveredLatestLogs = await prisma.orderAuditLog.groupBy({
-          by: ["orderId"],
-          where: {
-            action: "STATUS_CHANGED",
-            newValue: "DELIVERED",
-          },
-          _max: {
-            createdAt: true,
-          },
-        });
+        const statusDateRange = {
+          gte: fromDateValue ?? undefined,
+          lte: toDateValue ?? undefined,
+        };
 
-        const deliveredOrderIds = deliveredLatestLogs
-          .filter((row) => {
-            const ts = row._max.createdAt;
-            if (!ts) return false;
-            if (dateRange.gte && ts < dateRange.gte) return false;
-            if (dateRange.lte && ts > dateRange.lte) return false;
-            return true;
-          })
-          .map((row) => row.orderId);
-
-        const cancelledLatestLogs = await prisma.orderAuditLog.groupBy({
-          by: ["orderId"],
-          where: {
-            action: "STATUS_CHANGED",
-            newValue: "CANCELLED",
-          },
-          _max: {
-            createdAt: true,
-          },
-        });
-
-        const cancelledOrderIds = cancelledLatestLogs
-          .filter((row) => {
-            const ts = row._max.createdAt;
-            if (!ts) return false;
-            if (dateRange.gte && ts < dateRange.gte) return false;
-            if (dateRange.lte && ts > dateRange.lte) return false;
-            return true;
-          })
-          .map((row) => row.orderId);
+        const [deliveredOrderIds, cancelledOrderIds] = await Promise.all([
+          getOrderIdsWithLatestStatusInRange(prisma, "DELIVERED", statusDateRange),
+          getOrderIdsWithLatestStatusInRange(prisma, "CANCELLED", statusDateRange),
+        ]);
 
         const deliveredInRangeFilter: Prisma.OrderWhereInput = {
           OR: [

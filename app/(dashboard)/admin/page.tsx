@@ -4,16 +4,13 @@ import { useEffect, useState } from "react";
 import { formatPrice, formatDate } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import StatsCard from "@/components/ui/StatsCard";
-import Badge, { orderStatusBadge } from "@/components/ui/Badge";
 import Header from "@/components/layout/Header";
-import Link from "next/link";
 import {
   ShoppingCart,
   Package,
   Users,
   TrendingUp,
   AlertTriangle,
-  ArrowRight,
 } from "lucide-react";
 import {
   AreaChart,
@@ -34,12 +31,34 @@ interface DashboardData {
   totalProducts: number;
   totalCustomers: number;
   totalRevenue: number;
-  recentOrders: any[];
   lowStockProducts: any[];
   monthlyData: Array<{ day: string; revenue: number; totalOrders: number }>;
   statusData: Array<{ day: string; BLANK: number; PENDING: number; CONFIRMED: number; DELIVERED: number; CANCELLED: number; RETURNED: number }>;
   selectedYear: number;
   selectedMonth: number;
+}
+
+type ProductStatusKey = "DELIVERED" | "CONFIRMED" | "RETURNED" | "BLANK" | "PENDING" | "CANCELLED";
+
+type ProductStatusSummaryRow = {
+  productName: string;
+  DELIVERED: number;
+  CONFIRMED: number;
+  RETURNED: number;
+  BLANK: number;
+  PENDING: number;
+  CANCELLED: number;
+  total: number;
+};
+
+interface ProductStatusReportOrder {
+  status: string;
+  items: Array<{
+    qty: number;
+    product: {
+      name: string;
+    };
+  }>;
 }
 
 const STATUS_META = [
@@ -53,9 +72,14 @@ const STATUS_META = [
 
 export default function AdminDashboard() {
   const now = new Date();
+  const todayString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
   const [data, setData] = useState<DashboardData | null>(null);
+  const [reportFromDate, setReportFromDate] = useState(todayString);
+  const [reportToDate, setReportToDate] = useState(todayString);
+  const [productStatusRows, setProductStatusRows] = useState<ProductStatusSummaryRow[]>([]);
+  const [productStatusLoading, setProductStatusLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +101,81 @@ export default function AdminDashboard() {
 
     fetchDashboardData();
   }, [selectedYear, selectedMonth]);
+
+  useEffect(() => {
+    const fetchProductStatusReport = async () => {
+      setProductStatusLoading(true);
+      try {
+        const fromDate = reportFromDate;
+        const toDate = reportToDate;
+        const pageSize = 600;
+        const collectedOrders: ProductStatusReportOrder[] = [];
+
+        for (let page = 1; page <= 20; page += 1) {
+          const params = new URLSearchParams({
+            fromDate,
+            toDate,
+            page: String(page),
+            limit: String(pageSize),
+            includeCount: "0",
+          });
+
+          const response = await fetch(`/api/orders?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error("Failed to fetch orders for report");
+          }
+
+          const json = await response.json();
+          const rows = Array.isArray(json.data) ? json.data : [];
+          collectedOrders.push(...rows);
+
+          if (rows.length < pageSize) {
+            break;
+          }
+        }
+
+        const summary = new Map<string, ProductStatusSummaryRow>();
+        const allowedStatuses: ProductStatusKey[] = ["DELIVERED", "CONFIRMED", "RETURNED", "BLANK", "PENDING", "CANCELLED"];
+
+        for (const order of collectedOrders) {
+          const status = String(order.status ?? "").toUpperCase() as ProductStatusKey;
+          if (!allowedStatuses.includes(status)) continue;
+
+          for (const item of order.items ?? []) {
+            const productName = String(item.product?.name ?? "").trim();
+            const qty = Number(item.qty ?? 0);
+            if (!productName || !Number.isFinite(qty) || qty <= 0) continue;
+
+            if (!summary.has(productName)) {
+              summary.set(productName, {
+                productName,
+                DELIVERED: 0,
+                CONFIRMED: 0,
+                RETURNED: 0,
+                BLANK: 0,
+                PENDING: 0,
+                CANCELLED: 0,
+                total: 0,
+              });
+            }
+
+            const row = summary.get(productName)!;
+            row[status] += qty;
+            row.total += qty;
+          }
+        }
+
+        const rows = Array.from(summary.values()).sort((a, b) => b.total - a.total || a.productName.localeCompare(b.productName));
+        setProductStatusRows(rows);
+      } catch {
+        setProductStatusRows([]);
+      } finally {
+        setProductStatusLoading(false);
+      }
+    };
+
+    void fetchProductStatusReport();
+  }, [reportFromDate, reportToDate]);
 
   if (loading) {
     return (
@@ -216,52 +315,68 @@ export default function AdminDashboard() {
           </Card>
         </div>
 
-        {/* Recent orders + Low stock */}
+        {/* Product status report + Low stock */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-          {/* Recent orders */}
+          {/* Product status report */}
           <Card className="xl:col-span-2" padding="none">
-            <div className="flex items-center justify-between p-5 pb-0">
+            <div className="p-5 pb-0">
               <div>
-                <h3 className="text-base font-semibold text-slate-800">Сүүлийн захиалгууд</h3>
+                <h3 className="text-base font-semibold text-slate-800">Барааны тайлан (статус тус бүр)</h3>
+                <p className="mt-0.5 text-xs text-slate-400">Сонгосон огнооны хүрээнд бараа тус бүрийн төлөвийн тоо</p>
               </div>
-              <Link
-                href="/admin/orders"
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-              >
-                Бүгдийг харах <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={reportFromDate}
+                  onChange={(e) => setReportFromDate(e.target.value)}
+                  className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700"
+                />
+                <span className="text-slate-400">-</span>
+                <input
+                  type="date"
+                  value={reportToDate}
+                  onChange={(e) => setReportToDate(e.target.value)}
+                  className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700"
+                />
+              </div>
             </div>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-400 uppercase">Дугаар</th>
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-400 uppercase">Харилцагч</th>
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-400 uppercase">Статус</th>
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-400 uppercase">Дүн</th>
-                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-400 uppercase">Огноо</th>
+                    <th className="px-5 py-2.5 text-left text-xs font-semibold text-slate-400 uppercase">Бараа</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Хүргэгдсэн</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Хуваарилсан</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Хойшлуулсан</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Blank</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Хүлээгдэж байгаа</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Цуцалсан</th>
+                    <th className="px-3 py-2.5 text-center text-xs font-semibold text-slate-400 uppercase">Нийлбэр</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {data.recentOrders.map((order: any) => (
-                    <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-5 py-3">
-                        <Link href={`/admin/orders/${order.id}`} className="font-medium text-blue-600 hover:underline">
-                          {order.orderNumber}
-                        </Link>
-                      </td>
-                      <td className="px-5 py-3 text-slate-700">{order.customer.name}</td>
-                      <td className="px-5 py-3">
-                        <Badge variant={orderStatusBadge(order.status)}>
-                          {mn.status[order.status as keyof typeof mn.status]}
-                        </Badge>
-                      </td>
-                      <td className="px-5 py-3 font-medium text-slate-800">
-                        {formatPrice(Number(order.total))}
-                      </td>
-                      <td className="px-5 py-3 text-slate-400 text-xs">{formatDate(order.createdAt)}</td>
+                  {productStatusLoading ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-400">Тайлан ачаалж байна...</td>
                     </tr>
-                  ))}
+                  ) : productStatusRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-400">Сонгосон хугацаанд өгөгдөл олдсонгүй</td>
+                    </tr>
+                  ) : (
+                    productStatusRows.map((row) => (
+                      <tr key={row.productName} className="transition-colors hover:bg-slate-50/50">
+                        <td className="px-5 py-3 text-slate-700">{row.productName}</td>
+                        <td className="px-3 py-3 text-center font-medium text-emerald-700">{row.DELIVERED}</td>
+                        <td className="px-3 py-3 text-center font-medium text-orange-700">{row.CONFIRMED}</td>
+                        <td className="px-3 py-3 text-center font-medium text-rose-700">{row.RETURNED}</td>
+                        <td className="px-3 py-3 text-center font-medium text-slate-600">{row.BLANK}</td>
+                        <td className="px-3 py-3 text-center font-medium text-blue-700">{row.PENDING}</td>
+                        <td className="px-3 py-3 text-center font-medium text-slate-700">{row.CANCELLED}</td>
+                        <td className="px-3 py-3 text-center font-semibold text-slate-900">{row.total}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

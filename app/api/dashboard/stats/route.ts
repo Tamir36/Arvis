@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { filterOrderIdsByDate, getLatestStatusChangesByOrder } from "@/lib/status-changes";
 import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -55,19 +56,6 @@ function nextBusinessDay(date: Date): Date {
 function businessTodayStart(date = new Date()): Date {
   const shifted = new Date(date.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
   return businessDayStart(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
-}
-
-function filterOrderIdsByDate(
-  rows: Array<{ orderId: string; changedAt: Date | null }>,
-  dayStart: Date,
-  dayEnd: Date,
-): string[] {
-  return rows
-    .filter((row) => {
-      if (!row.changedAt) return false;
-      return row.changedAt >= dayStart && row.changedAt <= dayEnd;
-    })
-    .map((row) => row.orderId);
 }
 
 function buildDailyStatusWhere(params: {
@@ -292,20 +280,9 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const [statusChangeLogs, deliveredOrdersInMonth] = await Promise.all([
-      prisma.orderAuditLog.findMany({
-        where: {
-          action: "STATUS_CHANGED",
-          newValue: { in: ["DELIVERED", "CANCELLED", "RETURNED"] },
-          createdAt: { gte: monthStart, lte: monthEnd },
-        },
-        select: {
-          orderId: true,
-          newValue: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: "desc" },
-      }),
+    const [deliveredLatestLogs, cancelledLatestLogs, deliveredOrdersInMonth] = await Promise.all([
+      getLatestStatusChangesByOrder(prisma, "DELIVERED"),
+      getLatestStatusChangesByOrder(prisma, "CANCELLED"),
       prisma.order.findMany({
         where: {
           status: "DELIVERED",
@@ -352,13 +329,6 @@ export async function GET(req: NextRequest) {
         latestDeliveredAtByOrder.set(log.orderId, log.createdAt);
       }
     }
-
-    const deliveredLatestLogs = statusChangeLogs
-      .filter((log) => log.newValue === "DELIVERED")
-      .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
-    const cancelledLatestLogs = statusChangeLogs
-      .filter((log) => log.newValue === "CANCELLED")
-      .map((log) => ({ orderId: log.orderId, changedAt: log.createdAt }));
 
     const dailyMap = new Map<string, {
       dayLabel: string;

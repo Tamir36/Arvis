@@ -108,8 +108,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         updateData.notes = previousNotes ? `${previousNotes},\n${appendedNote}` : appendedNote;
       }
 
-      // When driver marks as RETURNED, always move to tomorrow from "now".
-      const scheduledDate = nextStatus === "RETURNED" ? nextDay(now) : startOfDay(now);
+      // Keep status changes on today's business date; rollover will move them at day boundary.
+      const scheduledDate = startOfDay(now);
 
       const driverAgent = await tx.deliveryAgent.findUnique({
         where: { userId: session.user.id },
