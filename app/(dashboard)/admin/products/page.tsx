@@ -160,7 +160,7 @@ export default function ProductsPage() {
                                     </div>
                                   )}
                                 </div>
-                                <span className="font-medium text-slate-800 max-w-[200px] truncate">{p.name}</span>
+                                <span className="font-medium text-slate-800 whitespace-normal break-words">{p.name}</span>
                               </div>
                             </td>
                             <td className="px-4 py-3 text-slate-600">{p.category?.name ?? "-"}</td>

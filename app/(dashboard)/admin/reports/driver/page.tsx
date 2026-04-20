@@ -90,7 +90,8 @@ function todayString() {
 }
 
 export default function DriverReportPage() {
-  const [date, setDate] = useState(todayString());
+  const [fromDate, setFromDate] = useState(todayString());
+  const [toDate, setToDate] = useState(todayString());
   const [allGroups, setAllGroups] = useState<DriverGroup[]>([]);
   const [drivers, setDrivers] = useState<DriverOption[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string>("");
@@ -108,7 +109,8 @@ export default function DriverReportPage() {
   const fetchReport = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await window.fetch(`/api/reports/driver?date=${date}`);
+      const params = new URLSearchParams({ fromDate, toDate });
+      const res = await window.fetch(`/api/reports/driver?${params.toString()}`);
       if (!res.ok) throw new Error("Failed");
       const json = await res.json();
       setAllGroups(json.data ?? []);
@@ -117,7 +119,7 @@ export default function DriverReportPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [date]);
+  }, [fromDate, toDate]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
@@ -196,11 +198,19 @@ export default function DriverReportPage() {
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-slate-600">Огноо</label>
             <input
               type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700
+                focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
               className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700
                 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />

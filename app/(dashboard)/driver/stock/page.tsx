@@ -241,7 +241,7 @@ export default function DriverStockPage() {
                           <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
                             {row.items.map((item, index) => (
                               <li key={`${row.id}-${item.productId}-${index}`}>
-                                {item.name} x{item.qty}
+                                {item.name} - {item.qty}ш
                               </li>
                             ))}
                           </ul>

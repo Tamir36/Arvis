@@ -180,7 +180,7 @@ export default function AdminDashboard() {
   if (loading) {
     return (
       <div>
-        <Header title="Хянах самбар" subtitle="Системийн ерөнхий мэдээлэл" />
+        <Header title="Хянах самбар" subtitle="Захиалгын ерөнхий мэдээлэл" showSearch={false} />
         <div className="p-5">
           <div className="text-center py-20">
             <div className="inline-block">
@@ -196,7 +196,7 @@ export default function AdminDashboard() {
   if (error || !data) {
     return (
       <div>
-        <Header title="Хянах самбар" subtitle="Системийн ерөнхий мэдээлэл" />
+        <Header title="Хянах самбар" subtitle="Захиалгын ерөнхий мэдээлэл" showSearch={false} />
         <div className="p-5">
           <Card className="bg-red-50 border-red-200">
             <p className="text-red-800 font-medium">❌ Алдаа: {error || "Өгөгдөл ачаалж чадсан"}</p>
@@ -206,26 +206,34 @@ export default function AdminDashboard() {
     );
   }
 
+  const selectedMonthRevenueTotal = data.monthlyData.reduce((sum, row) => {
+    const revenue = Number(row.revenue ?? 0);
+    return Number.isFinite(revenue) ? sum + revenue : sum;
+  }, 0);
+
+  const selectedMonthDeliveredCount = data.statusData.reduce((sum, row) => {
+    const delivered = Number(row.DELIVERED ?? 0);
+    return Number.isFinite(delivered) ? sum + delivered : sum;
+  }, 0);
+
   return (
     <div>
-      <Header title="Хянах самбар" subtitle="Системийн ерөнхий мэдээлэл" />
+      <Header title="Хянах самбар" subtitle="Захиалгын ерөнхий мэдээлэл" showSearch={false} />
 
       <div className="p-5 space-y-5">
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatsCard
             title={mn.stats.totalRevenue}
-            value={formatPrice(data.totalRevenue)}
+            value={formatPrice(selectedMonthRevenueTotal)}
             icon={<TrendingUp className="w-5 h-5" />}
             color="orange"
-            trend={{ value: 12, label: "өмнөх сараас" }}
           />
           <StatsCard
             title={mn.stats.totalOrders}
-            value={data.totalOrders}
+            value={selectedMonthDeliveredCount}
             icon={<ShoppingCart className="w-5 h-5" />}
             color="blue"
-            trend={{ value: 8, label: "өмнөх сараас" }}
           />
           <StatsCard
             title={mn.stats.activeProducts}

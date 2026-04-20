@@ -15,11 +15,14 @@ function nextBusinessDay(date: Date): Date {
   return new Date(date.getTime() + 24 * 60 * 60 * 1000);
 }
 
-function parseDateKey(value: string | null): Date {
+function businessTodayStart(date = new Date()): Date {
+  const shifted = new Date(date.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+  return businessDayStart(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
+}
+
+function parseDateKey(value: string | null, fallback: Date): Date {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const now = new Date();
-    const shifted = new Date(now.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
-    return businessDayStart(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
+    return fallback;
   }
 
   const [y, m, d] = value.split("-").map(Number);
@@ -48,9 +51,15 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const targetDate = parseDateKey(searchParams.get("date"));
-  const dayStart = targetDate;
-  const dayEnd = new Date(nextBusinessDay(dayStart).getTime() - 1);
+  const fallbackDay = businessTodayStart();
+  const legacyDate = searchParams.get("date");
+  const fromDateParam = searchParams.get("fromDate") ?? legacyDate;
+  const toDateParam = searchParams.get("toDate") ?? legacyDate;
+  const parsedFromDate = parseDateKey(fromDateParam, fallbackDay);
+  const parsedToDate = parseDateKey(toDateParam, fallbackDay);
+  const dayStart = parsedFromDate <= parsedToDate ? parsedFromDate : parsedToDate;
+  const rangeEndStart = parsedFromDate <= parsedToDate ? parsedToDate : parsedFromDate;
+  const dayEnd = new Date(nextBusinessDay(rangeEndStart).getTime() - 1);
   const role = String(session.user.role ?? "").toUpperCase();
 
   // Fetch terminal orders first; day filtering is applied by the latest status-change timestamp for each order's current status.
@@ -255,5 +264,9 @@ export async function GET(request: Request) {
     orders: d.orders,
   }));
 
-  return NextResponse.json({ data: result, date: dayStart.toISOString() });
+  return NextResponse.json({
+    data: result,
+    fromDate: dayStart.toISOString(),
+    toDate: rangeEndStart.toISOString(),
+  });
 }

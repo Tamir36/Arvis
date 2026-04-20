@@ -192,6 +192,14 @@ function formatDateOnly(iso: string): string {
   return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function getOrderDisplayDateValue(order: OrderRow, normalizedFilterFromDate: string, normalizedFilterToDate: string): string {
+  const todayLocal = getTodayLocal();
+  const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
+  const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
+  return order.delivery?.timeSlot?.date
+    ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
+}
+
 function normalizeMnPhone(value: string): string | null {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (!digits) return null;
@@ -236,7 +244,7 @@ function formatAuditItems(raw: string | null): string {
           if (!item || typeof item !== "object") return null;
           const name = typeof item.name === "string" && item.name.trim() ? item.name.trim() : "Бараа";
           const qty = Number(item.qty ?? 0);
-          return Number.isFinite(qty) && qty > 0 ? `${name} x${qty}` : name;
+          return Number.isFinite(qty) && qty > 0 ? `${name} - ${qty}ш` : name;
         })
         .filter(Boolean);
 
@@ -280,7 +288,7 @@ function formatAuditItemEntry(item: unknown): string {
   const name = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : "Бараа";
   const qty = Number(entry.qty ?? 0);
   const unitPrice = Number(entry.unitPrice ?? 0);
-  const qtyText = Number.isFinite(qty) && qty > 0 ? ` x${qty}` : "";
+  const qtyText = Number.isFinite(qty) && qty > 0 ? ` - ${qty}ш` : "";
   const priceText = Number.isFinite(unitPrice) && unitPrice > 0 ? ` (${formatPrice(unitPrice)})` : "";
   return `${name}${qtyText}${priceText}`;
 }
@@ -539,6 +547,7 @@ export default function OperatorOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [registeredProductFilter, setRegisteredProductFilter] = useState<string[]>([]);
   const [orderFetchLimit, setOrderFetchLimit] = useState<number>(200);
+  const [dateSortDirection, setDateSortDirection] = useState<"desc" | "asc">("desc");
 
   const [registrationItems, setRegistrationItems] = useState<RegistrationItem[]>([createRegistrationItem()]);
   const [registrationProductQueries, setRegistrationProductQueries] = useState<Record<string, string>>({});
@@ -603,8 +612,20 @@ export default function OperatorOrdersPage() {
     [allDriverFilterValues, driverFilter],
   );
 
+  const normalizedFilterFromDate = useMemo(() => (
+    filterFromDate && filterToDate && filterFromDate > filterToDate
+      ? filterToDate
+      : filterFromDate
+  ), [filterFromDate, filterToDate]);
+
+  const normalizedFilterToDate = useMemo(() => (
+    filterFromDate && filterToDate && filterFromDate > filterToDate
+      ? filterFromDate
+      : filterToDate
+  ), [filterFromDate, filterToDate]);
+
   const filteredOrders = useMemo(() => {
-    return orders.filter((order) => {
+    const filtered = orders.filter((order) => {
       const driverId = order.assignedTo?.id ?? order.delivery?.agent?.userId ?? "";
       const hasUnassignedDriverFilter = driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE);
       const matchesDriver = driverFilter.length === 0
@@ -614,7 +635,20 @@ export default function OperatorOrdersPage() {
       const matchesProduct = registeredProductFilter.length === 0 || order.items.some((item) => registeredProductFilter.includes(item.product.id));
       return matchesDriver && matchesStatus && matchesProduct;
     });
-  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter]);
+
+    return filtered.sort((a, b) => {
+      const aDate = new Date(getOrderDisplayDateValue(a, normalizedFilterFromDate, normalizedFilterToDate)).getTime();
+      const bDate = new Date(getOrderDisplayDateValue(b, normalizedFilterFromDate, normalizedFilterToDate)).getTime();
+
+      if (aDate === bDate) {
+        const aCreated = new Date(a.createdAt).getTime();
+        const bCreated = new Date(b.createdAt).getTime();
+        return dateSortDirection === "asc" ? aCreated - bCreated : bCreated - aCreated;
+      }
+
+      return dateSortDirection === "asc" ? aDate - bDate : bDate - aDate;
+    });
+  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, dateSortDirection]);
 
   const productFilterOptions = useMemo<FilterProductOption[]>(() => {
     const map = new Map<string, string>();
@@ -671,18 +705,6 @@ export default function OperatorOrdersPage() {
     }
     return `${statusFilter.length} төлөв сонгосон`;
   }, [statusFilter]);
-
-  const normalizedFilterFromDate = useMemo(() => (
-    filterFromDate && filterToDate && filterFromDate > filterToDate
-      ? filterToDate
-      : filterFromDate
-  ), [filterFromDate, filterToDate]);
-
-  const normalizedFilterToDate = useMemo(() => (
-    filterFromDate && filterToDate && filterFromDate > filterToDate
-      ? filterFromDate
-      : filterToDate
-  ), [filterFromDate, filterToDate]);
 
   const debouncedPhoneSearch = useDebouncedValue(phoneSearch);
   const debouncedAddressSearch = useDebouncedValue(addressSearch);
@@ -1779,7 +1801,17 @@ export default function OperatorOrdersPage() {
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                   <th className="px-2 py-2 text-left">#</th>
-                  <th className="px-2 py-2 text-left">Огноо</th>
+                  <th className="px-2 py-2 text-left normal-case">
+                    <button
+                      type="button"
+                      onClick={() => setDateSortDirection((current) => (current === "desc" ? "asc" : "desc"))}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      title={dateSortDirection === "desc" ? "Огноогоор: ихээс бага" : "Огноогоор: багаас их"}
+                    >
+                      <span>Огноо</span>
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dateSortDirection === "asc" ? "rotate-180" : ""}`} />
+                    </button>
+                  </th>
                   <th className="px-2 py-2 text-left normal-case">
                     <input
                       type="search"
@@ -1969,17 +2001,33 @@ export default function OperatorOrdersPage() {
                 ) : (
                   filteredOrders.map((order, index) => {
                     const qtyTotal = order.items.reduce((sum, item) => sum + item.qty, 0);
-                    const productText = order.items.map((item) => `${item.product.name} x ${item.qty}`).join(", ");
-                    const productListTitle = order.items.length > 0
-                      ? order.items.map((item) => `- ${item.product.name} x${item.qty}`).join("\n")
+                    const groupedProductMap = order.items.reduce((map, item) => {
+                      const key = item.product.id;
+                      const current = map.get(key);
+                      if (current) {
+                        current.qty += Number(item.qty ?? 0);
+                        return map;
+                      }
+
+                      map.set(key, {
+                        name: item.product.name,
+                        qty: Number(item.qty ?? 0),
+                      });
+                      return map;
+                    }, new Map<string, { name: string; qty: number }>());
+                    const groupedProducts = Array.from(groupedProductMap.values());
+                    const hasMultipleProductTypes = groupedProducts.length >= 2;
+                    const productText = groupedProducts.length > 0
+                      ? hasMultipleProductTypes
+                        ? groupedProducts.map((item) => `${item.name} - ${item.qty}ш`).join("\n")
+                        : `${groupedProducts[0].name} - ${groupedProducts[0].qty}ш`
+                      : "-";
+                    const productListTitle = groupedProducts.length > 0
+                      ? groupedProducts.map((item) => `- ${item.name} - ${item.qty}ш`).join("\n")
                       : "-";
                     const nextStatus = pendingStatuses[order.id] ?? order.status;
                     const selectedDriverId = pendingDriverIds[order.id] ?? order.assignedTo?.id ?? "";
-                    const todayLocal = getTodayLocal();
-                    const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
-                    const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
-                    const orderDisplayDate = order.delivery?.timeSlot?.date
-                      ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
+                    const orderDisplayDate = getOrderDisplayDateValue(order, normalizedFilterFromDate, normalizedFilterToDate);
 
                     return (
                       <tr key={order.id} className="border-b border-slate-100 hover:bg-blue-100 transition-colors">
@@ -1987,7 +2035,7 @@ export default function OperatorOrdersPage() {
                         <td className="px-2 py-1.5 whitespace-nowrap text-slate-700">{formatDateOnly(orderDisplayDate)}</td>
                         <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{order.customer.phone}</td>
                         <td className="px-2 py-1.5 align-top text-slate-700 whitespace-pre-wrap break-words">{order.shippingAddress || order.customer.address || "-"}</td>
-                        <td className="px-2 py-1.5 text-slate-700 truncate" title={productListTitle}>{productText || "-"}</td>
+                        <td className={`px-2 py-1.5 text-slate-700 ${hasMultipleProductTypes ? "whitespace-pre-wrap break-words" : "truncate"}`} title={productListTitle}>{productText}</td>
                         <td className="px-2 py-1.5 text-center text-slate-700">{qtyTotal}</td>
                         <td className="px-2 py-1.5 text-right whitespace-nowrap">
                           <span

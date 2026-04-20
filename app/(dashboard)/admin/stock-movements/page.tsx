@@ -444,7 +444,7 @@ export default function StockMovementsPage() {
                       <td className="px-4 py-3 text-slate-700">
                         <div className="space-y-1">
                           {transfer.items.map((item) => (
-                            <p key={item.id}>{item.product.name} x {item.quantity}</p>
+                            <p key={item.id}>{item.product.name} - {item.quantity}ш</p>
                           ))}
                         </div>
                       </td>

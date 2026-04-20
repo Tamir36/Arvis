@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Pencil } from "lucide-react";
 import { usePathname } from "next/navigation";
 import Header from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
@@ -37,6 +37,7 @@ interface DeliveryOrder {
     address: string | null;
   };
   items: DeliveryItem[];
+  driverPrivateNote?: string | null;
 }
 
 const DRIVER_ACTION_STATUS_OPTIONS = [
@@ -161,12 +162,14 @@ const DRIVER_BORDER_MARKER_STYLES: Record<DriverBorderMarker, { border: string; 
     label: "Улбар шар",
   },
   green: {
-    border: "border-emerald-400",
-    ring: "border-emerald-300 bg-emerald-50",
-    dot: "bg-emerald-500",
-    label: "Ногоон",
+    border: "border-rose-400",
+    ring: "border-rose-300 bg-rose-50",
+    dot: "bg-rose-500",
+    label: "Улаан",
   },
 };
+
+const DRIVER_BORDER_MARKERS_STORAGE_KEY = "driverDeliveries.borderMarkers";
 
 function sortDriverDeliveries(rows: DeliveryOrder[]) {
   return [...rows].sort((left, right) => {
@@ -198,7 +201,7 @@ function tabMatchesStatus(tab: DriverStatusTab, status: string): boolean {
 function buildOrderCopyText(order: DeliveryOrder): string {
   const address = order.shippingAddress || order.customer.address || "-";
   const items = order.items.length > 0
-    ? order.items.map((item) => `${item.name} x${item.qty}`).join(", ")
+    ? order.items.map((item) => `${item.name} - ${item.qty}ш`).join(", ")
     : "-";
 
   return `Утас: ${order.customer.phone}\nХаяг: ${address}\nБараа: ${items}`;
@@ -218,6 +221,9 @@ export default function DriverDeliveriesPage() {
   const [visibleMonth, setVisibleMonth] = useState(todayDate.slice(0, 7));
   const [phoneSearch, setPhoneSearch] = useState("");
   const [statusTab, setStatusTab] = useState<DriverStatusTab>("ALL");
+  const [driverNoteModalOrderId, setDriverNoteModalOrderId] = useState("");
+  const [driverNoteModalText, setDriverNoteModalText] = useState("");
+  const [isSavingDriverNote, setIsSavingDriverNote] = useState(false);
   const [noteModalOrderId, setNoteModalOrderId] = useState("");
   const [noteModalStatus, setNoteModalStatus] = useState<"RETURNED" | "CANCELLED" | "">("");
   const [noteModalText, setNoteModalText] = useState("");
@@ -260,6 +266,28 @@ export default function DriverDeliveriesPage() {
       Object.values(saveTimersRef.current).forEach((timerId) => clearTimeout(timerId));
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      const savedMarkers = localStorage.getItem(DRIVER_BORDER_MARKERS_STORAGE_KEY);
+      if (savedMarkers) {
+        const parsedMarkers = JSON.parse(savedMarkers) as Record<string, DriverBorderMarker | undefined>;
+        if (parsedMarkers && typeof parsedMarkers === "object") {
+          setBorderMarkers(parsedMarkers);
+        }
+      }
+    } catch {
+      // Ignore malformed localStorage content.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRIVER_BORDER_MARKERS_STORAGE_KEY, JSON.stringify(borderMarkers));
+    } catch {
+      // Ignore storage write failures.
+    }
+  }, [borderMarkers]);
 
   useEffect(() => {
     const selectedMonth = selectedDate.slice(0, 7);
@@ -460,6 +488,50 @@ export default function DriverDeliveriesPage() {
     });
   }
 
+  function openDriverNoteModal(orderId: string) {
+    const order = orders.find((entry) => entry.id === orderId);
+    setDriverNoteModalOrderId(orderId);
+    setDriverNoteModalText(order?.driverPrivateNote ?? "");
+  }
+
+  function closeDriverNoteModal() {
+    setDriverNoteModalOrderId("");
+    setDriverNoteModalText("");
+  }
+
+  async function saveDriverPrivateNote() {
+    if (!driverNoteModalOrderId) return;
+
+    setIsSavingDriverNote(true);
+    try {
+      const response = await fetch(`/api/driver/deliveries/${driverNoteModalOrderId}/private-note`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ note: driverNoteModalText.trim() }),
+      });
+
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json.error ?? "Тэмдэглэл хадгалах үед алдаа гарлаа");
+      }
+
+      const savedNote = typeof json.note === "string" ? json.note : null;
+      setOrders((current) => current.map((order) => (
+        order.id === driverNoteModalOrderId
+          ? { ...order, driverPrivateNote: savedNote }
+          : order
+      )));
+      closeDriverNoteModal();
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "Тэмдэглэл хадгалах үед алдаа гарлаа");
+    } finally {
+      setIsSavingDriverNote(false);
+    }
+  }
+
   return (
     <div>
       <Header title="Миний хүргэлт" showSearch={false} />
@@ -557,20 +629,31 @@ export default function DriverDeliveriesPage() {
               const statusOptions = getStatusOptions(order.status);
               const isPaymentReceived = order.paymentStatus === "PAID";
               const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
+              const driverPrivateNote = (order.driverPrivateNote ?? "").trim();
               const borderMarker = borderMarkers[order.id];
               const borderMarkerClass = borderMarker
                 ? DRIVER_BORDER_MARKER_STYLES[borderMarker].border
                 : "border-slate-200";
               return (
                 <div key={order.id} className={`relative rounded-xl border-2 p-3 ${borderMarkerClass}`}>
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyOrderInfo(order)}
-                    aria-label="Захиалгын мэдээлэл хуулах"
-                    className="absolute right-3 top-3 rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="absolute right-3 top-3 flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => openDriverNoteModal(order.id)}
+                      aria-label="Жолоочийн тэмдэглэл"
+                      className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyOrderInfo(order)}
+                      aria-label="Захиалгын мэдээлэл хуулах"
+                      className="rounded-md border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
 
                   <div className="mt-2 border-b border-slate-100 pb-2 text-sm text-slate-700">
                     <div className="flex items-center gap-2">
@@ -578,9 +661,12 @@ export default function DriverDeliveriesPage() {
                         {order.customer.phone}
                       </a>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{order.shippingAddress || order.customer.address || "-"}</p>
+                    <p className="mt-1 text-sm text-slate-800">{order.shippingAddress || order.customer.address || "-"}</p>
                     {order.notes?.trim() && (
-                      <p className="mt-1 whitespace-pre-line text-sm text-slate-500">Тайлбар: {order.notes}</p>
+                      <p className="mt-1 whitespace-pre-line text-sm text-slate-700">Тайлбар: {order.notes}</p>
+                    )}
+                    {driverPrivateNote && (
+                      <p className="mt-1 whitespace-pre-line text-xs italic text-slate-500">Тэмдэглэл: {driverPrivateNote}</p>
                     )}
                   </div>
 
@@ -588,7 +674,7 @@ export default function DriverDeliveriesPage() {
                     {order.items.map((item) => (
                       <div key={item.id} className="grid grid-cols-[1fr_auto_auto] gap-2">
                         <p className="font-medium text-slate-700">{item.name}</p>
-                        <p className="font-medium text-slate-500">x{item.qty}</p>
+                        <p className="font-medium text-slate-500">- {item.qty}ш</p>
                         <p className="font-medium text-slate-500">{formatPrice(Number(item.unitPrice))}</p>
                       </div>
                     ))}
@@ -665,6 +751,7 @@ export default function DriverDeliveriesPage() {
                   const statusOptions = getStatusOptions(order.status);
                   const isPaymentReceived = order.paymentStatus === "PAID";
                   const orderTotal = order.items.reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
+                  const driverPrivateNote = (order.driverPrivateNote ?? "").trim();
                   const borderMarker = borderMarkers[order.id];
                   const rowBorderClass = borderMarker
                     ? DRIVER_BORDER_MARKER_STYLES[borderMarker].border
@@ -683,6 +770,15 @@ export default function DriverDeliveriesPage() {
                           >
                             Хуулах
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => openDriverNoteModal(order.id)}
+                            className="grid h-6 w-6 place-items-center rounded border border-slate-300 text-slate-600 hover:bg-slate-50"
+                            title="Жолоочийн тэмдэглэл"
+                            aria-label="Жолоочийн тэмдэглэл"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </td>
                       <td className="p-3">
@@ -695,7 +791,7 @@ export default function DriverDeliveriesPage() {
                       <td className="p-3">
                         <div className="space-y-1 text-xs text-slate-600">
                           {order.items.map((item) => (
-                            <div key={item.id}>x{item.qty}</div>
+                            <div key={item.id}>- {item.qty}ш</div>
                           ))}
                         </div>
                       </td>
@@ -705,8 +801,13 @@ export default function DriverDeliveriesPage() {
                           {isPaymentReceived && <div className="mt-1 text-emerald-700">Тооцоо орсон</div>}
                         </div>
                       </td>
-                      <td className="p-3 text-xs text-slate-600">{order.shippingAddress || order.customer.address || "-"}</td>
-                      <td className="p-3 text-xs whitespace-pre-wrap text-slate-600">{order.notes?.trim() || ""}</td>
+                      <td className="p-3 text-xs text-slate-800">{order.shippingAddress || order.customer.address || "-"}</td>
+                      <td className="p-3 text-xs whitespace-pre-wrap text-slate-700">
+                        {order.notes?.trim() || ""}
+                        {driverPrivateNote && (
+                          <div className="mt-1 whitespace-pre-wrap text-[11px] italic text-slate-500">Тэмдэглэл: {driverPrivateNote}</div>
+                        )}
+                      </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
                           <select
@@ -749,6 +850,43 @@ export default function DriverDeliveriesPage() {
           </div>
         </Card>
       </div>
+
+      <Modal
+        isOpen={Boolean(driverNoteModalOrderId)}
+        onClose={closeDriverNoteModal}
+        title="Жолоочийн тэмдэглэл"
+        size="sm"
+        footer={(
+          <>
+            <button
+              type="button"
+              onClick={closeDriverNoteModal}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Болих
+            </button>
+            <button
+              type="button"
+              onClick={saveDriverPrivateNote}
+              disabled={isSavingDriverNote}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              {isSavingDriverNote ? "Хадгалж байна..." : "Хадгалах"}
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">Энэ тэмдэглэл зөвхөн жолоочийн энэ дэлгэц дээр харагдана.</p>
+          <textarea
+            value={driverNoteModalText}
+            onChange={(e) => setDriverNoteModalText(e.target.value)}
+            placeholder="Тэмдэглэл бичнэ үү"
+            rows={4}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
+          />
+        </div>
+      </Modal>
 
       <Modal
         isOpen={Boolean(noteModalOrderId && noteModalStatus)}

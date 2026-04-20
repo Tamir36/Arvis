@@ -37,6 +37,7 @@ model User {
   orders         Order[]         @relation("AssignedOrders")
   deliveryAgent  DeliveryAgent?
   stockMovements StockMovement[]
+  privateOrderNotes OrderDriverPrivateNote[]
   driverStocks   DriverStock[]
   createdTransfers InventoryTransfer[] @relation("TransferCreatedBy")
   sourceTransfers  InventoryTransfer[] @relation("TransferFromDriver")
@@ -360,6 +361,7 @@ model Order {
 
   items    OrderItem[]
   auditLogs OrderAuditLog[]
+  privateNotes OrderDriverPrivateNote[]
   delivery  DeliveryAssignment?
 
   @@index([createdAt])
@@ -369,6 +371,22 @@ model Order {
   @@index([customerId, createdAt])
 
   @@map("orders")
+}
+
+model OrderDriverPrivateNote {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  driverId  String
+  driver    User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  note      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orderId, driverId])
+  @@index([driverId, updatedAt])
+  @@index([orderId, updatedAt])
+  @@map("order_driver_private_notes")
 }
 
 model OrderItem {

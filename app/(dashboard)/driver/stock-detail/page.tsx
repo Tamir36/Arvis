@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Card } from "@/components/ui/Card";
 
@@ -30,10 +31,10 @@ export default function DriverStockDetailPage() {
   const today = useMemo(() => getTodayLocal(), []);
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
-  const [mobileDay, setMobileDay] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [rows, setRows] = useState<MovementRow[]>([]);
   const [days, setDays] = useState<string[]>([]);
+  const [expandedMobileDay, setExpandedMobileDay] = useState<string>("");
   const [error, setError] = useState("");
 
   const fetchMovement = useCallback(async () => {
@@ -63,26 +64,6 @@ export default function DriverStockDetailPage() {
     void fetchMovement();
   }, [fetchMovement]);
 
-  const totalsByDay = useMemo(() => {
-    const totals: Record<string, { added: number; removed: number; balance: number }> = {};
-    for (const day of days) {
-      totals[day] = { added: 0, removed: 0, balance: 0 };
-    }
-
-    for (const row of rows) {
-      for (const cell of row.values) {
-        if (!totals[cell.day]) {
-          totals[cell.day] = { added: 0, removed: 0, balance: 0 };
-        }
-        totals[cell.day].added += cell.added;
-        totals[cell.day].removed += cell.removed;
-        totals[cell.day].balance += cell.balance;
-      }
-    }
-
-    return totals;
-  }, [days, rows]);
-
   const visibleRows = useMemo(() => {
     // Hide products that are completely zero for the selected date range.
     return rows.filter((row) => row.values.some((cell) => cell.balance > 0));
@@ -110,16 +91,14 @@ export default function DriverStockDetailPage() {
 
   useEffect(() => {
     if (days.length === 0) {
-      setMobileDay("");
+      setExpandedMobileDay("");
       return;
     }
 
-    if (!mobileDay || !days.includes(mobileDay)) {
-      setMobileDay(days[days.length - 1]);
+    if (!expandedMobileDay || !days.includes(expandedMobileDay)) {
+      setExpandedMobileDay(days[days.length - 1]);
     }
-  }, [days, mobileDay]);
-
-  const selectedMobileDay = mobileDay || days[days.length - 1] || "";
+  }, [days, expandedMobileDay]);
 
   return (
     <div>
@@ -169,55 +148,62 @@ export default function DriverStockDetailPage() {
             ) : (
               <>
                 <div className="space-y-3 p-3 md:hidden">
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="mb-2 block text-xs font-medium text-slate-600">Харах өдөр</label>
-                    <select
-                      value={selectedMobileDay}
-                      onChange={(e) => setMobileDay(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {days.map((day) => (
-                        <option key={day} value={day}>{displayDate(day)}</option>
-                      ))}
-                    </select>
-                    {selectedMobileDay && (
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                        <div className="rounded-lg bg-emerald-50 px-2 py-2 text-center text-emerald-700">
-                          <div className="font-medium">Нэмэгдсэн</div>
-                          <div className="mt-1 text-sm font-semibold">{visibleTotalsByDay[selectedMobileDay]?.added ?? 0}</div>
+                  {days.map((day) => (
+                    <div key={`mobile-day-${day}`} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedMobileDay((current) => (current === day ? "" : day))}
+                        className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-xs font-semibold text-slate-700">{displayDate(day)}</div>
+                          <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${expandedMobileDay === day ? "rotate-180" : ""}`} />
                         </div>
-                        <div className="rounded-lg bg-red-50 px-2 py-2 text-center text-red-700">
-                          <div className="font-medium">Хасагдсан</div>
-                          <div className="mt-1 text-sm font-semibold">{visibleTotalsByDay[selectedMobileDay]?.removed ?? 0}</div>
-                        </div>
-                        <div className="rounded-lg bg-slate-100 px-2 py-2 text-center text-slate-700">
-                          <div className="font-medium">Үлдэгдэл</div>
-                          <div className="mt-1 text-sm font-semibold">{visibleTotalsByDay[selectedMobileDay]?.balance ?? 0}</div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 pb-2">
-                    {visibleRows.map((row) => {
-                      const cell = row.values.find((item) => item.day === selectedMobileDay) ?? {
-                        day: selectedMobileDay,
-                        added: 0,
-                        removed: 0,
-                        balance: 0,
-                      };
-
-                      return (
-                        <div key={row.productId} className="rounded-xl border border-slate-200 bg-white p-3">
-                          <div className="mb-2 text-sm font-semibold text-slate-800">{row.productName}</div>
-                          <div className="grid grid-cols-3 gap-2 text-xs">
-                            <div className="rounded-md bg-emerald-50 px-2 py-1.5 text-center text-emerald-700">+{cell.added}</div>
-                            <div className="rounded-md bg-red-50 px-2 py-1.5 text-center text-red-700">-{cell.removed}</div>
-                            <div className="rounded-md bg-slate-100 px-2 py-1.5 text-center font-medium text-slate-700">{cell.balance}</div>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                          <div className="rounded-lg bg-emerald-50 px-2 py-2 text-center text-emerald-700">
+                            <div className="font-medium">Нэмэгдсэн</div>
+                            <div className="mt-1 text-sm font-semibold">{visibleTotalsByDay[day]?.added ?? 0}</div>
+                          </div>
+                          <div className="rounded-lg bg-red-50 px-2 py-2 text-center text-red-700">
+                            <div className="font-medium">Хасагдсан</div>
+                            <div className="mt-1 text-sm font-semibold">{visibleTotalsByDay[day]?.removed ?? 0}</div>
+                          </div>
+                          <div className="rounded-lg bg-slate-100 px-2 py-2 text-center text-slate-700">
+                            <div className="font-medium">Үлдэгдэл</div>
+                            <div className="mt-1 text-sm font-semibold">{visibleTotalsByDay[day]?.balance ?? 0}</div>
                           </div>
                         </div>
-                      );
-                    })}
+                      </button>
+
+                      {expandedMobileDay === day && (
+                        <div className="space-y-2 pb-2">
+                          {visibleRows.map((row) => {
+                            const cell = row.values.find((item) => item.day === day) ?? {
+                              day,
+                              added: 0,
+                              removed: 0,
+                              balance: 0,
+                            };
+
+                            return (
+                              <div key={`${row.productId}-${day}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                                <div className="mb-2 text-sm font-semibold text-slate-800">{row.productName}</div>
+                                <div className="grid grid-cols-3 gap-2 text-xs">
+                                  <div className="rounded-md bg-emerald-50 px-2 py-1.5 text-center text-emerald-700">+{cell.added}</div>
+                                  <div className="rounded-md bg-red-50 px-2 py-1.5 text-center text-red-700">-{cell.removed}</div>
+                                  <div className="rounded-md bg-slate-100 px-2 py-1.5 text-center font-medium text-slate-700">{cell.balance}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div className="space-y-2 pb-2">
+                    {days.length === 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-white p-3 text-center text-xs text-slate-400">Сонгосон огноонд өгөгдөл алга</div>
+                    )}
                   </div>
                 </div>
 

@@ -295,6 +295,16 @@ export async function GET(req: NextRequest) {
               },
             },
           },
+          privateNotes: {
+            where: {
+              driverId: session.user.id,
+            },
+            select: {
+              note: true,
+              updatedAt: true,
+            },
+            take: 1,
+          },
           auditLogs: {
             where: {
               action: "STATUS_CHANGED",
@@ -369,10 +379,17 @@ export async function GET(req: NextRequest) {
         return order.effectiveDate >= dayStart && order.effectiveDate <= dayEnd;
       })
       .sort((left, right) => left.effectiveDate.getTime() - right.effectiveDate.getTime())
-      .map(({ effectiveDate, auditLogs, ...order }) => ({
-        ...order,
-        effectiveDate: effectiveDate.toISOString(),
-      }));
+      .map(({ effectiveDate, auditLogs, privateNotes, ...order }) => {
+        const firstPrivateNote = (Array.isArray(privateNotes)
+          ? privateNotes[0]
+          : null) as { note?: string | null } | null;
+
+        return {
+          ...order,
+          effectiveDate: effectiveDate.toISOString(),
+          driverPrivateNote: firstPrivateNote?.note ?? null,
+        };
+      });
 
     const filteredStockHistory = stockHistory.filter((log) => {
       const meta = parseStockAuditMeta(log.newValue);
