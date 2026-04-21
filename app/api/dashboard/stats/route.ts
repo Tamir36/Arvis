@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const REPORT_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
 const CARRYOVER_STATUSES = new Set(["BLANK", "PENDING", "CONFIRMED", "RETURNED"]);
-const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED"] as const;
+const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "RETURNED"] as const;
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
 
 function parseYearMonth(req: NextRequest): { year: number; month: number } {
@@ -64,8 +64,9 @@ function buildDailyStatusWhere(params: {
   todayStart: Date;
   deliveredOrderIds: string[];
   cancelledOrderIds: string[];
+  returnedOrderIds: string[];
 }): Prisma.OrderWhereInput {
-  const { dayStart, dayEnd, todayStart, deliveredOrderIds, cancelledOrderIds } = params;
+  const { dayStart, dayEnd, todayStart, deliveredOrderIds, cancelledOrderIds, returnedOrderIds } = params;
   const includesToday = dayStart.getTime() === todayStart.getTime();
   const dateRange: Prisma.DateTimeFilter = {
     gte: dayStart,
@@ -127,17 +128,7 @@ function buildDailyStatusWhere(params: {
       {
         AND: [
           { status: "RETURNED" },
-          {
-            delivery: {
-              is: {
-                timeSlot: {
-                  is: {
-                    date: dateRange,
-                  },
-                },
-              },
-            },
-          },
+          { id: { in: returnedOrderIds } },
         ],
       },
       {
@@ -280,9 +271,10 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    const [deliveredLatestLogs, cancelledLatestLogs, deliveredOrdersInMonth] = await Promise.all([
+    const [deliveredLatestLogs, cancelledLatestLogs, returnedLatestLogs, deliveredOrdersInMonth] = await Promise.all([
       getLatestStatusChangesByOrder(prisma, "DELIVERED"),
       getLatestStatusChangesByOrder(prisma, "CANCELLED"),
+      getLatestStatusChangesByOrder(prisma, "RETURNED"),
       prisma.order.findMany({
         where: {
           status: "DELIVERED",
@@ -360,6 +352,7 @@ export async function GET(req: NextRequest) {
         todayStart,
         deliveredOrderIds: filterOrderIdsByDate(deliveredLatestLogs, dayStart, dayEnd),
         cancelledOrderIds: filterOrderIdsByDate(cancelledLatestLogs, dayStart, dayEnd),
+        returnedOrderIds: filterOrderIdsByDate(returnedLatestLogs, dayStart, dayEnd),
       });
 
       const dayOrders = await prisma.order.findMany({

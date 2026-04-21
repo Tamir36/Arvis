@@ -672,9 +672,8 @@ export default function DriverDeliveriesPage() {
 
                   <div className="mt-2 border-b border-slate-100 pb-2 space-y-1 text-sm text-slate-600">
                     {order.items.map((item) => (
-                      <div key={item.id} className="grid grid-cols-[1fr_auto_auto] gap-2">
-                        <p className="font-medium text-slate-700">{item.name}</p>
-                        <p className="font-medium text-slate-500">- {item.qty}ш</p>
+                      <div key={item.id} className="grid grid-cols-[1fr_auto] gap-2">
+                        <p className="font-medium text-slate-700">{item.name} <span className="font-bold text-slate-800">- {item.qty}ш</span></p>
                         <p className="font-medium text-slate-500">{formatPrice(Number(item.unitPrice))}</p>
                       </div>
                     ))}
@@ -784,7 +783,7 @@ export default function DriverDeliveriesPage() {
                       <td className="p-3">
                         <div className="space-y-1 text-xs text-slate-600">
                           {order.items.map((item) => (
-                            <div key={item.id}>{item.name}</div>
+                            <div key={item.id}>{item.name} <span className="font-bold text-slate-800">- {item.qty}ш</span></div>
                           ))}
                         </div>
                       </td>

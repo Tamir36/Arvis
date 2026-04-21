@@ -19,7 +19,7 @@ const CONTACT_LABELS: Record<string, string> = {
 const ALL_ORDER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
 
 const ROLLOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
-const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED"] as const;
+const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
@@ -487,9 +487,10 @@ export async function GET(req: NextRequest) {
           lte: toDateValue ?? undefined,
         };
 
-        const [deliveredOrderIds, cancelledOrderIds] = await Promise.all([
+        const [deliveredOrderIds, cancelledOrderIds, returnedOrderIds] = await Promise.all([
           getOrderIdsWithLatestStatusInRange(prisma, "DELIVERED", statusDateRange),
           getOrderIdsWithLatestStatusInRange(prisma, "CANCELLED", statusDateRange),
+          getOrderIdsWithLatestStatusInRange(prisma, "RETURNED", statusDateRange),
         ]);
 
         const deliveredInRangeFilter: Prisma.OrderWhereInput = {
@@ -551,17 +552,7 @@ export async function GET(req: NextRequest) {
             {
               AND: [
                 { status: "RETURNED" },
-                {
-                  delivery: {
-                    is: {
-                      timeSlot: {
-                        is: {
-                          date: dateRange,
-                        },
-                      },
-                    },
-                  },
-                },
+                { id: { in: returnedOrderIds } },
               ],
             },
             {

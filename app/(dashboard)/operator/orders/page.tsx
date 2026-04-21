@@ -141,7 +141,7 @@ const INPUT_CLASS = "w-full rounded-md border border-slate-200 bg-white px-2 py-
 
 const STATUS_OPTIONS: Array<{ value: string; label: string; className: string }> = [
   { value: "BLANK", label: "Blank", className: "bg-white text-slate-500 border-slate-200" },
-  { value: "PENDING", label: "Хүлээгдэж байгаа", className: "bg-sky-100 text-sky-700 border-sky-200" },
+  { value: "PENDING", label: "Хүлээлгэ", className: "bg-sky-100 text-sky-700 border-sky-200" },
   { value: "CONFIRMED", label: "Хувиарласан", className: "bg-indigo-100 text-indigo-700 border-indigo-200" },
   { value: "DELIVERED", label: "Хүргэгдсэн", className: "bg-green-100 text-green-700 border-green-200" },
   { value: "CANCELLED", label: "Цуцалсан", className: "bg-red-100 text-red-700 border-red-200" },
@@ -196,6 +196,9 @@ function getOrderDisplayDateValue(order: OrderRow, normalizedFilterFromDate: str
   const todayLocal = getTodayLocal();
   const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
   const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
+  if (order.status === "RETURNED") {
+    return carryoverDisplayDate;
+  }
   return order.delivery?.timeSlot?.date
     ?? (CARRYOVER_STATUSES.has(order.status) ? carryoverDisplayDate : order.createdAt);
 }
@@ -547,6 +550,7 @@ export default function OperatorOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [registeredProductFilter, setRegisteredProductFilter] = useState<string[]>([]);
   const [orderFetchLimit, setOrderFetchLimit] = useState<number>(200);
+  const [isDateSortEnabled, setIsDateSortEnabled] = useState(false);
   const [dateSortDirection, setDateSortDirection] = useState<"desc" | "asc">("desc");
 
   const [registrationItems, setRegistrationItems] = useState<RegistrationItem[]>([createRegistrationItem()]);
@@ -636,6 +640,14 @@ export default function OperatorOrdersPage() {
       return matchesDriver && matchesStatus && matchesProduct;
     });
 
+    if (!isDateSortEnabled) {
+      return filtered.sort((a, b) => {
+        const aCreated = new Date(a.createdAt).getTime();
+        const bCreated = new Date(b.createdAt).getTime();
+        return bCreated - aCreated;
+      });
+    }
+
     return filtered.sort((a, b) => {
       const aDate = new Date(getOrderDisplayDateValue(a, normalizedFilterFromDate, normalizedFilterToDate)).getTime();
       const bDate = new Date(getOrderDisplayDateValue(b, normalizedFilterFromDate, normalizedFilterToDate)).getTime();
@@ -648,7 +660,7 @@ export default function OperatorOrdersPage() {
 
       return dateSortDirection === "asc" ? aDate - bDate : bDate - aDate;
     });
-  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, dateSortDirection]);
+  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, isDateSortEnabled, dateSortDirection]);
 
   const productFilterOptions = useMemo<FilterProductOption[]>(() => {
     const map = new Map<string, string>();
@@ -766,9 +778,6 @@ export default function OperatorOrdersPage() {
       if (!isAllDriversSelected && selectedDriverIds.length > 0) {
         params.set("driverIds", selectedDriverIds.join(","));
       }
-      if (registeredProductFilter.length > 0) {
-        params.set("productIds", registeredProductFilter.join(","));
-      }
       if (statusFilter.length > 0) params.set("statuses", statusFilter.join(","));
       if (debouncedPhoneSearch.trim()) params.set("phone", debouncedPhoneSearch.trim());
       if (debouncedAddressSearch.trim()) params.set("address", debouncedAddressSearch.trim());
@@ -855,7 +864,6 @@ export default function OperatorOrdersPage() {
     normalizedFilterToDate,
     driverFilter,
     isAllDriversSelected,
-    registeredProductFilter,
     statusFilter,
     debouncedPhoneSearch,
     debouncedAddressSearch,
@@ -1277,6 +1285,10 @@ export default function OperatorOrdersPage() {
 
       return [...current, productId];
     });
+  };
+
+  const selectAllProducts = () => {
+    setRegisteredProductFilter([]);
   };
 
   const toggleDriverFilter = (driverId: string) => {
@@ -1804,12 +1816,19 @@ export default function OperatorOrdersPage() {
                   <th className="px-2 py-2 text-left normal-case">
                     <button
                       type="button"
-                      onClick={() => setDateSortDirection((current) => (current === "desc" ? "asc" : "desc"))}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      title={dateSortDirection === "desc" ? "Огноогоор: ихээс бага" : "Огноогоор: багаас их"}
+                      onClick={() => {
+                        if (!isDateSortEnabled) {
+                          setIsDateSortEnabled(true);
+                          setDateSortDirection("desc");
+                          return;
+                        }
+                        setDateSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${isDateSortEnabled ? "border-slate-200 bg-white text-slate-600" : "border-slate-200 bg-slate-100 text-slate-500"}`}
+                      title={isDateSortEnabled ? (dateSortDirection === "desc" ? "Огноогоор: ихээс бага" : "Огноогоор: багаас их") : "Огноогоор эрэмбэлэх"}
                     >
                       <span>Огноо</span>
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dateSortDirection === "asc" ? "rotate-180" : ""}`} />
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isDateSortEnabled && dateSortDirection === "asc" ? "rotate-180" : ""}`} />
                     </button>
                   </th>
                   <th className="px-2 py-2 text-left normal-case">
@@ -1874,6 +1893,14 @@ export default function OperatorOrdersPage() {
                               </button>
                             );
                           })}
+                          <div className="my-1 border-t border-slate-200" />
+                          <button
+                            type="button"
+                            onClick={selectAllProducts}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            <span className="truncate">Бүгд</span>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -2054,13 +2081,13 @@ export default function OperatorOrdersPage() {
                               const currentStatus = pendingStatuses[order.id] ?? order.status;
                               handleSaveRowWithValues(order.id, currentStatus, newDriverId);
                             }}
-                            className={`h-8 w-full rounded-full border px-2 py-0.5 text-xs font-semibold text-slate-800 ${selectedDriverId
-                              ? getDriverNameColorClass(selectedDriverId)
-                              : "border-slate-200 bg-white"
+                            className={`h-8 w-full rounded-full border px-2 py-0.5 text-xs font-semibold ${selectedDriverId
+                              ? `${getDriverNameColorClass(selectedDriverId)} text-slate-800`
+                              : "border-slate-200 bg-white text-slate-500 text-center"
                               }`}
                             disabled={savingRowId === order.id}
                           >
-                            <option value="">Сонгох</option>
+                            <option value="">-</option>
                             {drivers.map((driver, index) => (
                               <option key={driver.id} value={driver.id}>
                                 {getDriverOptionLabel(driver, index)}
@@ -2077,12 +2104,12 @@ export default function OperatorOrdersPage() {
                               const currentDriverId = pendingDriverIds[order.id] ?? "";
                               handleSaveRowWithValues(order.id, newStatus, currentDriverId);
                             }}
-                            className={`h-8 w-full rounded-full border px-2 py-0.5 text-xs font-semibold ${getStatusClass(nextStatus)}`}
+                            className={`h-8 w-full rounded-full border px-2 py-0.5 text-xs font-semibold ${getStatusClass(nextStatus)} ${nextStatus === "BLANK" ? "text-center" : ""}`}
                             disabled={savingRowId === order.id}
                           >
                             {STATUS_OPTIONS.map((option) => (
                               <option key={option.value} value={option.value}>
-                                {option.label}
+                                {option.value === "BLANK" ? "-" : option.label}
                               </option>
                             ))}
                           </select>
