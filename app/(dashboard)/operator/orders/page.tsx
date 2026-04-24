@@ -1288,7 +1288,9 @@ export default function OperatorOrdersPage() {
   };
 
   const selectAllProducts = () => {
-    setRegisteredProductFilter([]);
+    const allIds = productFilterOptions.map((product) => product.id);
+    const areAllSelected = allIds.length > 0 && allIds.every((id) => registeredProductFilter.includes(id));
+    setRegisteredProductFilter(areAllSelected ? [] : allIds);
   };
 
   const toggleDriverFilter = (driverId: string) => {
@@ -1899,6 +1901,15 @@ export default function OperatorOrdersPage() {
                             onClick={selectAllProducts}
                             className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
                           >
+                            {(() => {
+                              const allIds = productFilterOptions.map((p) => p.id);
+                              const allSelected = allIds.length > 0 && allIds.every((id) => registeredProductFilter.includes(id));
+                              return (
+                                <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${allSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                                  <Check className="h-3 w-3" />
+                                </span>
+                              );
+                            })()}
                             <span className="truncate">Бүгд</span>
                           </button>
                         </div>
