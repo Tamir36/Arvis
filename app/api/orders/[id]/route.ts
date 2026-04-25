@@ -344,8 +344,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           await ensureDriverHasStock(nextDriverId, nextItemsForStockValidation);
         }
 
-        // Assigning a driver should always move open orders out of BLANK/PENDING into CONFIRMED.
-        if (nextDriverId && ["BLANK", "PENDING", "CONFIRMED", "SHIPPED"].includes(String(nextStatus))) {
+        // Assigning a driver should keep legacy behavior for status transitions.
+        if (nextDriverId && ["PENDING", "CONFIRMED", "SHIPPED"].includes(String(nextStatus))) {
           nextStatus = "CONFIRMED";
         }
 
