@@ -95,12 +95,11 @@ export default function InventoryReportPage() {
   const availableProductsBySection = useMemo(() => {
     const activeProductIds = new Set(sections.ACTIVE.map((item) => item.productId));
 
+    const inactiveProductIds = new Set(sections.INACTIVE.map((item) => item.productId));
+
     return {
-      ACTIVE: products.filter((product) => !sections.ACTIVE.some((item) => item.productId === product.id)),
-      INACTIVE: products.filter((product) => (
-        !sections.INACTIVE.some((item) => item.productId === product.id)
-        && !activeProductIds.has(product.id)
-      )),
+      ACTIVE: products.filter((product) => !activeProductIds.has(product.id) && !inactiveProductIds.has(product.id)),
+      INACTIVE: products.filter((product) => !inactiveProductIds.has(product.id) && !activeProductIds.has(product.id)),
     } satisfies Record<SectionKey, ProductOption[]>;
   }, [products, sections]);
 
@@ -266,12 +265,12 @@ export default function InventoryReportPage() {
                     <table className="w-full min-w-[640px] text-sm">
                       <thead>
                         <tr className="border-b border-slate-100 bg-white text-xs font-semibold uppercase text-slate-400">
-                          <th className="px-4 py-3 text-center">#</th>
-                          <th className="px-4 py-3 text-left">Бараа</th>
-                          <th className="px-4 py-3 text-right">Үлдэгдэл</th>
-                          <th className="px-4 py-3 text-right">Захиалсан үнэ</th>
-                          <th className="px-4 py-3 text-right">Үржвэр</th>
-                          <th className="px-4 py-3 text-center"></th>
+                          <th className="px-4 py-2 text-center">#</th>
+                          <th className="px-4 py-2 text-left">Бараа</th>
+                          <th className="px-4 py-2 text-right">Үлдэгдэл</th>
+                          <th className="px-4 py-2 text-right">Захиалсан үнэ</th>
+                          <th className="px-4 py-2 text-right">Үржвэр</th>
+                          <th className="px-4 py-2 text-center"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -284,12 +283,12 @@ export default function InventoryReportPage() {
                         ) : (
                           items.map((item, index) => (
                             <tr key={item.id} className="align-middle hover:bg-slate-50/60">
-                              <td className="px-4 py-3 text-center text-slate-400">{index + 1}</td>
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-1.5 text-center text-slate-400">{index + 1}</td>
+                              <td className="px-4 py-1.5">
                                 <div className="font-medium text-slate-700">{item.productName}</div>
                               </td>
-                              <td className="px-4 py-3 text-right font-medium text-slate-700">{item.stockQty}</td>
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-1.5 text-right font-medium text-slate-700">{item.stockQty}</td>
+                              <td className="px-4 py-1.5">
                                 <input
                                   type="number"
                                   min="0"
@@ -307,8 +306,8 @@ export default function InventoryReportPage() {
                                   disabled={Boolean(savingIds[item.id])}
                                 />
                               </td>
-                              <td className="px-4 py-3 text-right font-semibold text-slate-800">{formatPrice(item.totalAmount)}</td>
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-4 py-1.5 text-right font-semibold text-slate-800">{formatPrice(item.totalAmount)}</td>
+                              <td className="px-4 py-1.5 text-center">
                                 <button
                                   type="button"
                                   onClick={() => void handleRemoveItem(section, item.id)}
@@ -324,9 +323,9 @@ export default function InventoryReportPage() {
                       </tbody>
                       <tfoot>
                         <tr className="border-t border-slate-200 bg-slate-50">
-                          <td colSpan={4} className="px-4 py-3 text-right text-sm font-semibold text-slate-600">Нийт дүн</td>
-                          <td className="px-4 py-3 text-right text-sm font-bold text-slate-800">{formatPrice(sectionTotal)}</td>
-                          <td className="px-4 py-3" />
+                          <td colSpan={4} className="px-4 py-2 text-right text-sm font-semibold text-slate-600">Нийт дүн</td>
+                          <td className="px-4 py-2 text-right text-sm font-bold text-slate-800">{formatPrice(sectionTotal)}</td>
+                          <td className="px-4 py-2" />
                         </tr>
                       </tfoot>
                     </table>

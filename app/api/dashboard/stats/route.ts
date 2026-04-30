@@ -135,6 +135,22 @@ function buildDailyStatusWhere(params: {
         AND: [
           { status: "RETURNED" },
           {
+            delivery: {
+              is: {
+                timeSlot: {
+                  is: {
+                    date: dateRange,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        AND: [
+          { status: "RETURNED" },
+          {
             auditLogs: {
               none: {
                 action: "STATUS_CHANGED",
@@ -327,6 +343,7 @@ export async function GET(req: NextRequest) {
       totalOrders: number;
       revenue: number;
       statuses: Record<string, number>;
+      statusAmounts: Record<string, number>;
     }>();
 
     for (let day = 1; day <= days; day += 1) {
@@ -336,6 +353,7 @@ export async function GET(req: NextRequest) {
         totalOrders: 0,
         revenue: 0,
         statuses: Object.fromEntries(REPORT_STATUSES.map((status) => [status, 0])),
+        statusAmounts: Object.fromEntries(REPORT_STATUSES.map((status) => [status, 0])),
       });
     }
 
@@ -359,6 +377,7 @@ export async function GET(req: NextRequest) {
         where: dayWhere,
         select: {
           status: true,
+          total: true,
         },
       });
 
@@ -367,6 +386,7 @@ export async function GET(req: NextRequest) {
         if (!(status in row.statuses)) continue;
         row.totalOrders += 1;
         row.statuses[status] += 1;
+        row.statusAmounts[status] += Number(order.total ?? 0);
       }
     }
 
@@ -390,6 +410,7 @@ export async function GET(req: NextRequest) {
     const statusData = Array.from(dailyMap.values()).map((row) => ({
       day: row.dayLabel,
       ...row.statuses,
+      ...Object.fromEntries(REPORT_STATUSES.map((status) => [`${status}Amount`, row.statusAmounts[status]])),
     }));
 
     return NextResponse.json({

@@ -662,6 +662,10 @@ export default function OperatorOrdersPage() {
     });
   }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, isDateSortEnabled, dateSortDirection]);
 
+  const filteredOrdersTotalAmount = useMemo(() => {
+    return filteredOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
+  }, [filteredOrders]);
+
   const productFilterOptions = useMemo<FilterProductOption[]>(() => {
     const map = new Map<string, string>();
     for (const order of orders) {
@@ -2156,6 +2160,19 @@ export default function OperatorOrdersPage() {
                   })
                 )}
               </tbody>
+              {isAdmin && filteredOrders.length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-300 bg-slate-50">
+                    <td colSpan={6} className="px-2 py-2 text-right text-xs font-semibold text-slate-700">Нийт мөнгөн дүн</td>
+                    <td className="px-2 py-2 text-right whitespace-nowrap">
+                      <span className="inline-flex items-center justify-end rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-bold text-slate-900">
+                        {formatPrice(filteredOrdersTotalAmount)}
+                      </span>
+                    </td>
+                    <td colSpan={4} className="px-2 py-2" />
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">

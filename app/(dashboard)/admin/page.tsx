@@ -33,7 +33,21 @@ interface DashboardData {
   totalRevenue: number;
   lowStockProducts: any[];
   monthlyData: Array<{ day: string; revenue: number; totalOrders: number }>;
-  statusData: Array<{ day: string; BLANK: number; PENDING: number; CONFIRMED: number; DELIVERED: number; CANCELLED: number; RETURNED: number }>;
+  statusData: Array<{
+    day: string;
+    BLANK: number;
+    PENDING: number;
+    CONFIRMED: number;
+    DELIVERED: number;
+    CANCELLED: number;
+    RETURNED: number;
+    BLANKAmount: number;
+    PENDINGAmount: number;
+    CONFIRMEDAmount: number;
+    DELIVEREDAmount: number;
+    CANCELLEDAmount: number;
+    RETURNEDAmount: number;
+  }>;
   selectedYear: number;
   selectedMonth: number;
 }
@@ -63,11 +77,11 @@ interface ProductStatusReportOrder {
 
 const STATUS_META = [
   { key: "BLANK", color: "#94a3b8", label: "Blank" },
-  { key: "PENDING", color: "#2563eb", label: "Хүлээгдэж байгаа" },
+  { key: "PENDING", color: "#2563eb", label: "Хүлээлгэ" },
   { key: "CONFIRMED", color: "#f97316", label: "Хуваарилсан" },
   { key: "DELIVERED", color: "#10b981", label: "Хүргэгдсэн" },
-  { key: "CANCELLED", color: "#6b7280", label: "Цуцалсан" },
-  { key: "RETURNED", color: "#ef4444", label: "Хойшлуулсан" },
+  { key: "CANCELLED", color: "#ef4444", label: "Цуцалсан" },
+  { key: "RETURNED", color: "#6b7280", label: "Хойшлуулсан" },
 ] as const;
 
 export default function AdminDashboard() {
@@ -316,7 +330,13 @@ export default function AdminDashboard() {
                 <Legend iconType="circle" iconSize={8} formatter={(v) => <span style={{ fontSize: 11, color: "#64748b" }}>{v}</span>} />
                 <Tooltip
                   contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }}
-                  formatter={(value: number, name: string) => [value, name]}
+                  formatter={(value: number, name: string, item) => {
+                    const row = item?.payload as Record<string, number | string> | undefined;
+                    const statusMeta = STATUS_META.find((status) => status.label === name);
+                    const statusKey = statusMeta?.key ?? String(item?.dataKey ?? "");
+                    const amount = Number(row?.[`${statusKey}Amount`] ?? 0);
+                    return [`${value} (${formatPrice(amount)})`, name];
+                  }}
                 />
               </BarChart>
             </ResponsiveContainer>
