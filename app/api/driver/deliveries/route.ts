@@ -251,7 +251,7 @@ export async function GET(req: NextRequest) {
     const [rawDeliveries, driverStocks, stockHistory] = await Promise.all([
       prisma.order.findMany({
         where: {
-          status: { not: "PENDING" },
+          status: { notIn: ["PENDING", "BLANK"] },
           OR: [
             {
               assignedToId: session.user.id,
