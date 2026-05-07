@@ -192,7 +192,16 @@ function formatDateOnly(iso: string): string {
   return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function getOrderDisplayDateValue(order: OrderRow, normalizedFilterFromDate: string, normalizedFilterToDate: string): string {
+function getOrderDisplayDateValue(
+  order: OrderRow,
+  normalizedFilterFromDate: string,
+  normalizedFilterToDate: string,
+  useOriginalRegisteredDate: boolean,
+): string {
+  if (useOriginalRegisteredDate) {
+    return order.createdAt;
+  }
+
   const todayLocal = getTodayLocal();
   const selectedEndDate = normalizedFilterToDate || normalizedFilterFromDate || todayLocal;
   const carryoverDisplayDate = selectedEndDate > todayLocal ? todayLocal : selectedEndDate;
@@ -577,7 +586,9 @@ export default function OperatorOrdersPage() {
   const driverDropdownRef = useRef<HTMLDivElement | null>(null);
   const statusDropdownRef = useRef<HTMLDivElement | null>(null);
 
-  const isAdmin = String(session?.user?.role ?? "").toUpperCase() === "ADMIN";
+  const role = String(session?.user?.role ?? "").toUpperCase();
+  const isAdmin = role === "ADMIN";
+  const useOriginalRegisteredDate = role === "ADMIN" || role === "OPERATOR";
 
   const registrationLineItems = useMemo(() => {
     return registrationItems.map((item) => {
@@ -649,8 +660,8 @@ export default function OperatorOrdersPage() {
     }
 
     return filtered.sort((a, b) => {
-      const aDate = new Date(getOrderDisplayDateValue(a, normalizedFilterFromDate, normalizedFilterToDate)).getTime();
-      const bDate = new Date(getOrderDisplayDateValue(b, normalizedFilterFromDate, normalizedFilterToDate)).getTime();
+      const aDate = new Date(getOrderDisplayDateValue(a, normalizedFilterFromDate, normalizedFilterToDate, useOriginalRegisteredDate)).getTime();
+      const bDate = new Date(getOrderDisplayDateValue(b, normalizedFilterFromDate, normalizedFilterToDate, useOriginalRegisteredDate)).getTime();
 
       if (aDate === bDate) {
         const aCreated = new Date(a.createdAt).getTime();
@@ -660,7 +671,7 @@ export default function OperatorOrdersPage() {
 
       return dateSortDirection === "asc" ? aDate - bDate : bDate - aDate;
     });
-  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, isDateSortEnabled, dateSortDirection]);
+  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, isDateSortEnabled, dateSortDirection, useOriginalRegisteredDate]);
 
   const filteredOrdersTotalAmount = useMemo(() => {
     return filteredOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
@@ -2069,7 +2080,7 @@ export default function OperatorOrdersPage() {
                       : "-";
                     const nextStatus = pendingStatuses[order.id] ?? order.status;
                     const selectedDriverId = pendingDriverIds[order.id] ?? order.assignedTo?.id ?? "";
-                    const orderDisplayDate = getOrderDisplayDateValue(order, normalizedFilterFromDate, normalizedFilterToDate);
+                    const orderDisplayDate = getOrderDisplayDateValue(order, normalizedFilterFromDate, normalizedFilterToDate, useOriginalRegisteredDate);
 
                     return (
                       <tr key={order.id} className="border-b border-slate-100 hover:bg-blue-100 transition-colors">
