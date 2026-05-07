@@ -1622,6 +1622,240 @@ export default function OperatorOrdersPage() {
     )));
   };
 
+  const renderRegisteredOrdersColGroup = () => (
+    <colgroup>
+      <col className="w-[40px]" />
+      <col className="w-[95px]" />
+      <col className="w-[125px]" />
+      <col className="w-[360px]" />
+      <col className="w-[150px]" />
+      <col className="w-[75px]" />
+      <col className="w-[110px]" />
+      <col className="w-[130px]" />
+      <col className="w-[135px]" />
+      <col className="w-[140px]" />
+      <col className="w-[120px]" />
+    </colgroup>
+  );
+
+  const renderRegisteredOrdersTableHead = () => (
+    <thead>
+      <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+        <th className="px-2 py-2 text-left">#</th>
+        <th className="px-2 py-2 text-left normal-case">
+          <button
+            type="button"
+            onClick={() => {
+              if (!isDateSortEnabled) {
+                setIsDateSortEnabled(true);
+                setDateSortDirection("desc");
+                return;
+              }
+              setDateSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+            }}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${isDateSortEnabled ? "border-slate-200 bg-white text-slate-600" : "border-slate-200 bg-slate-100 text-slate-500"}`}
+            title={isDateSortEnabled ? (dateSortDirection === "desc" ? "Огноогоор: ихээс бага" : "Огноогоор: багаас их") : "Огноогоор эрэмбэлэх"}
+          >
+            <span>Огноо</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isDateSortEnabled && dateSortDirection === "asc" ? "rotate-180" : ""}`} />
+          </button>
+        </th>
+        <th className="px-2 py-2 text-left normal-case">
+          <input
+            type="search"
+            value={phoneSearch}
+            onChange={(e) => setPhoneSearch(e.target.value)}
+            placeholder="Дугаар"
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </th>
+        <th className="px-2 py-2 text-left normal-case">
+          <input
+            type="search"
+            value={addressSearch}
+            onChange={(e) => setAddressSearch(e.target.value)}
+            placeholder="Хаяг"
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </th>
+        <th className="px-2 py-2 text-left normal-case">
+          <div className="relative" ref={productDropdownRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsProductDropdownOpen((current) => !current);
+                setIsDriverDropdownOpen(false);
+                setIsStatusDropdownOpen(false);
+              }}
+              className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <span className="truncate text-left">{productFilterLabel}</span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isProductDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {isProductDropdownOpen && (
+              <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] max-h-[220px] overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                <div className="px-1 pb-1">
+                  <input
+                    type="search"
+                    value={productFilterQuery}
+                    onChange={(e) => setProductFilterQuery(e.target.value)}
+                    placeholder="Бараа"
+                    className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                {visibleProductFilterOptions.length === 0 ? (
+                  <div className="px-2 py-2 text-[11px] text-slate-400">Бараа олдсонгүй</div>
+                ) : visibleProductFilterOptions.map((product) => {
+                  const isSelected = registeredProductFilter.includes(product.id);
+                  return (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => toggleProductFilter(product.id)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                    >
+                      <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                        <Check className="h-3 w-3" />
+                      </span>
+                      <span className="truncate">{product.name}</span>
+                    </button>
+                  );
+                })}
+                <div className="my-1 border-t border-slate-200" />
+                <button
+                  type="button"
+                  onClick={selectAllProducts}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  {(() => {
+                    const allIds = productFilterOptions.map((p) => p.id);
+                    const allSelected = allIds.length > 0 && allIds.every((id) => registeredProductFilter.includes(id));
+                    return (
+                      <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${allSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                        <Check className="h-3 w-3" />
+                      </span>
+                    );
+                  })()}
+                  <span className="truncate">Бүгд</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </th>
+        <th className="px-2 py-2 text-center">Тоо</th>
+        <th className="px-2 py-2 text-center">Үнэ</th>
+        <th className="px-2 py-2 text-left normal-case">
+          <div className="relative" ref={driverDropdownRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsDriverDropdownOpen((current) => !current);
+                setIsProductDropdownOpen(false);
+                setIsStatusDropdownOpen(false);
+              }}
+              className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <span className="truncate text-left">{driverFilterLabel}</span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isDriverDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {isDriverDropdownOpen && (
+              <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                <button
+                  key={UNASSIGNED_DRIVER_FILTER_VALUE}
+                  type="button"
+                  onClick={() => toggleDriverFilter(UNASSIGNED_DRIVER_FILTER_VALUE)}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                >
+                  <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE) ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                    <Check className="h-3 w-3" />
+                  </span>
+                  <span className="truncate">Blank</span>
+                </button>
+                {drivers.map((driver, index) => {
+                  const isSelected = driverFilter.includes(driver.id);
+                  return (
+                    <button
+                      key={driver.id}
+                      type="button"
+                      onClick={() => toggleDriverFilter(driver.id)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                    >
+                      <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                        <Check className="h-3 w-3" />
+                      </span>
+                      <span className="truncate">{getDriverOptionLabel(driver, index)}</span>
+                    </button>
+                  );
+                })}
+                <div className="my-1 border-t border-slate-200" />
+                <button
+                  type="button"
+                  onClick={selectAllDrivers}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  <span className="truncate">Бүгд</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </th>
+        <th className="px-2 py-2 text-left normal-case">
+          <div className="relative" ref={statusDropdownRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsStatusDropdownOpen((current) => !current);
+                setIsProductDropdownOpen(false);
+                setIsDriverDropdownOpen(false);
+              }}
+              className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <span className="truncate text-left">{statusFilterLabel}</span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isStatusDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {isStatusDropdownOpen && (
+              <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                {STATUS_OPTIONS.map((option) => {
+                  const isSelected = statusFilter.includes(option.value);
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => toggleStatusFilter(option.value)}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                    >
+                      <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
+                        <Check className="h-3 w-3" />
+                      </span>
+                      <span className="truncate">{option.label}</span>
+                    </button>
+                  );
+                })}
+                <div className="my-1 border-t border-slate-200" />
+                <button
+                  type="button"
+                  onClick={selectAllStatuses}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  <span className="truncate">Бүгд</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </th>
+        <th className="px-2 py-2 text-left">Тайлбар</th>
+        <th className="px-2 py-2 text-center">
+          <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
+            Цэвэрлэх
+          </Button>
+        </th>
+      </tr>
+    </thead>
+  );
+
   return (
     <div>
       <Header title="Захиалга" showSearch={false} />
@@ -1830,258 +2064,39 @@ export default function OperatorOrdersPage() {
         </div>
 
         <Card padding="none">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 flex flex-wrap items-center gap-3">
-            <h2 className="text-sm font-semibold text-slate-700">Бүртгэгдсэн захиалга</h2>
-            <div className="flex items-center gap-2 ml-2">
-              <input
-                ref={fromDateInputRef}
-                type="date"
-                value={filterFromDate}
-                onChange={(e) => setFilterFromDate(e.target.value)}
-                onClick={() => handleDateFieldClick(fromDateInputRef.current)}
-                className="px-2 py-1 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <span className="text-slate-400 text-xs">—</span>
-              <input
-                ref={toDateInputRef}
-                type="date"
-                value={filterToDate}
-                onChange={(e) => setFilterToDate(e.target.value)}
-                onClick={() => handleDateFieldClick(toDateInputRef.current)}
-                className="px-2 py-1 rounded-md border border-slate-200 bg-white text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+          <div className="sticky top-16 z-20 bg-white">
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 shadow-sm supports-[backdrop-filter]:bg-slate-50/95">
+              <h2 className="text-sm font-semibold text-slate-700">Бүртгэгдсэн захиалга</h2>
+              <div className="ml-2 flex items-center gap-2">
+                <input
+                  ref={fromDateInputRef}
+                  type="date"
+                  value={filterFromDate}
+                  onChange={(e) => setFilterFromDate(e.target.value)}
+                  onClick={() => handleDateFieldClick(fromDateInputRef.current)}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-xs text-slate-400">—</span>
+                <input
+                  ref={toDateInputRef}
+                  type="date"
+                  value={filterToDate}
+                  onChange={(e) => setFilterToDate(e.target.value)}
+                  onClick={() => handleDateFieldClick(toDateInputRef.current)}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="overflow-x-auto border-b border-slate-200 bg-slate-50">
+              <table className="min-w-[1200px] w-full table-fixed text-sm">
+                {renderRegisteredOrdersColGroup()}
+                {renderRegisteredOrdersTableHead()}
+              </table>
             </div>
           </div>
           <div className="min-h-[420px] overflow-x-auto overflow-y-visible">
             <table className="min-w-[1200px] w-full table-fixed text-sm">
-              <colgroup>
-                <col className="w-[40px]" />
-                <col className="w-[95px]" />
-                <col className="w-[125px]" />
-                <col className="w-[360px]" />
-                <col className="w-[150px]" />
-                <col className="w-[75px]" />
-                <col className="w-[110px]" />
-                <col className="w-[130px]" />
-                <col className="w-[135px]" />
-                <col className="w-[140px]" />
-                <col className="w-[120px]" />
-              </colgroup>
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                  <th className="px-2 py-2 text-left">#</th>
-                  <th className="px-2 py-2 text-left normal-case">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!isDateSortEnabled) {
-                          setIsDateSortEnabled(true);
-                          setDateSortDirection("desc");
-                          return;
-                        }
-                        setDateSortDirection((current) => (current === "desc" ? "asc" : "desc"));
-                      }}
-                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${isDateSortEnabled ? "border-slate-200 bg-white text-slate-600" : "border-slate-200 bg-slate-100 text-slate-500"}`}
-                      title={isDateSortEnabled ? (dateSortDirection === "desc" ? "Огноогоор: ихээс бага" : "Огноогоор: багаас их") : "Огноогоор эрэмбэлэх"}
-                    >
-                      <span>Огноо</span>
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isDateSortEnabled && dateSortDirection === "asc" ? "rotate-180" : ""}`} />
-                    </button>
-                  </th>
-                  <th className="px-2 py-2 text-left normal-case">
-                    <input
-                      type="search"
-                      value={phoneSearch}
-                      onChange={(e) => setPhoneSearch(e.target.value)}
-                      placeholder="Дугаар"
-                      className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </th>
-                  <th className="px-2 py-2 text-left normal-case">
-                    <input
-                      type="search"
-                      value={addressSearch}
-                      onChange={(e) => setAddressSearch(e.target.value)}
-                      placeholder="Хаяг"
-                      className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </th>
-                  <th className="px-2 py-2 text-left normal-case">
-                    <div className="relative" ref={productDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsProductDropdownOpen((current) => !current);
-                          setIsDriverDropdownOpen(false);
-                          setIsStatusDropdownOpen(false);
-                        }}
-                        className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <span className="truncate text-left">{productFilterLabel}</span>
-                        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isProductDropdownOpen ? "rotate-180" : ""}`} />
-                      </button>
-
-                      {isProductDropdownOpen && (
-                        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] max-h-[220px] overflow-y-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-                          <div className="px-1 pb-1">
-                            <input
-                              type="search"
-                              value={productFilterQuery}
-                              onChange={(e) => setProductFilterQuery(e.target.value)}
-                              placeholder="Бараа"
-                              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-                          {visibleProductFilterOptions.length === 0 ? (
-                            <div className="px-2 py-2 text-[11px] text-slate-400">Бараа олдсонгүй</div>
-                          ) : visibleProductFilterOptions.map((product) => {
-                            const isSelected = registeredProductFilter.includes(product.id);
-                            return (
-                              <button
-                                key={product.id}
-                                type="button"
-                                onClick={() => toggleProductFilter(product.id)}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
-                              >
-                                <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
-                                  <Check className="h-3 w-3" />
-                                </span>
-                                <span className="truncate">{product.name}</span>
-                              </button>
-                            );
-                          })}
-                          <div className="my-1 border-t border-slate-200" />
-                          <button
-                            type="button"
-                            onClick={selectAllProducts}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            {(() => {
-                              const allIds = productFilterOptions.map((p) => p.id);
-                              const allSelected = allIds.length > 0 && allIds.every((id) => registeredProductFilter.includes(id));
-                              return (
-                                <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${allSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
-                                  <Check className="h-3 w-3" />
-                                </span>
-                              );
-                            })()}
-                            <span className="truncate">Бүгд</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-2 py-2 text-center">Тоо</th>
-                  <th className="px-2 py-2 text-center">Үнэ</th>
-                  <th className="px-2 py-2 text-left normal-case">
-                    <div className="relative" ref={driverDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsDriverDropdownOpen((current) => !current);
-                          setIsProductDropdownOpen(false);
-                          setIsStatusDropdownOpen(false);
-                        }}
-                        className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <span className="truncate text-left">{driverFilterLabel}</span>
-                        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isDriverDropdownOpen ? "rotate-180" : ""}`} />
-                      </button>
-
-                      {isDriverDropdownOpen && (
-                        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-                          <button
-                            key={UNASSIGNED_DRIVER_FILTER_VALUE}
-                            type="button"
-                            onClick={() => toggleDriverFilter(UNASSIGNED_DRIVER_FILTER_VALUE)}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
-                          >
-                            <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${driverFilter.includes(UNASSIGNED_DRIVER_FILTER_VALUE) ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
-                              <Check className="h-3 w-3" />
-                            </span>
-                            <span className="truncate">Blank</span>
-                          </button>
-                          {drivers.map((driver, index) => {
-                            const isSelected = driverFilter.includes(driver.id);
-                            return (
-                              <button
-                                key={driver.id}
-                                type="button"
-                                onClick={() => toggleDriverFilter(driver.id)}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
-                              >
-                                <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
-                                  <Check className="h-3 w-3" />
-                                </span>
-                                <span className="truncate">{getDriverOptionLabel(driver, index)}</span>
-                              </button>
-                            );
-                          })}
-                          <div className="my-1 border-t border-slate-200" />
-                          <button
-                            type="button"
-                            onClick={selectAllDrivers}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            <span className="truncate">Бүгд</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-2 py-2 text-left normal-case">
-                    <div className="relative" ref={statusDropdownRef}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsStatusDropdownOpen((current) => !current);
-                          setIsProductDropdownOpen(false);
-                          setIsDriverDropdownOpen(false);
-                        }}
-                        className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <span className="truncate text-left">{statusFilterLabel}</span>
-                        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isStatusDropdownOpen ? "rotate-180" : ""}`} />
-                      </button>
-
-                      {isStatusDropdownOpen && (
-                        <div className="absolute left-0 top-[calc(100%+4px)] z-20 w-full min-w-[170px] rounded-md border border-slate-200 bg-white p-1 shadow-lg">
-                          {STATUS_OPTIONS.map((option) => {
-                            const isSelected = statusFilter.includes(option.value);
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                onClick={() => toggleStatusFilter(option.value)}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
-                              >
-                                <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>
-                                  <Check className="h-3 w-3" />
-                                </span>
-                                <span className="truncate">{option.label}</span>
-                              </button>
-                            );
-                          })}
-                          <div className="my-1 border-t border-slate-200" />
-                          <button
-                            type="button"
-                            onClick={selectAllStatuses}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
-                          >
-                            <span className="truncate">Бүгд</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </th>
-                  <th className="px-2 py-2 text-left">Тайлбар</th>
-                  <th className="px-2 py-2 text-center">
-                    <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
-                      Цэвэрлэх
-                    </Button>
-                  </th>
-                </tr>
-              </thead>
+              {renderRegisteredOrdersColGroup()}
               <tbody>
                 {isLoading ? (
                   <tr>
