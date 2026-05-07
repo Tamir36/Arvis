@@ -149,7 +149,7 @@ const STATUS_OPTIONS: Array<{ value: string; label: string; className: string }>
 ];
 
 const REGISTRATION_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) => option.value !== "PENDING" && option.value !== "BLANK");
-const ORDER_LIMIT_OPTIONS = [200, 400, 600] as const;
+const ORDER_LIMIT_OPTIONS = [300, 600, 900] as const;
 const UNASSIGNED_DRIVER_FILTER_VALUE = "__UNASSIGNED__";
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -558,7 +558,8 @@ export default function OperatorOrdersPage() {
   const [driverFilter, setDriverFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [registeredProductFilter, setRegisteredProductFilter] = useState<string[]>([]);
-  const [orderFetchLimit, setOrderFetchLimit] = useState<number>(200);
+  const [orderFetchLimit, setOrderFetchLimit] = useState<number>(300);
+  const [totalOrderCount, setTotalOrderCount] = useState<number>(0);
   const [isDateSortEnabled, setIsDateSortEnabled] = useState(false);
   const [dateSortDirection, setDateSortDirection] = useState<"desc" | "asc">("desc");
 
@@ -647,7 +648,7 @@ export default function OperatorOrdersPage() {
         || isAllDriversSelected
         || (driverId ? driverFilter.includes(driverId) : hasUnassignedDriverFilter);
       const matchesStatus = statusFilter.length === 0 || statusFilter.includes(order.status);
-      const matchesProduct = registeredProductFilter.length === 0 || order.items.some((item) => registeredProductFilter.includes(item.product.id));
+      const matchesProduct = true; // product filter is handled server-side via productIds param
       return matchesDriver && matchesStatus && matchesProduct;
     });
 
@@ -671,7 +672,7 @@ export default function OperatorOrdersPage() {
 
       return dateSortDirection === "asc" ? aDate - bDate : bDate - aDate;
     });
-  }, [orders, driverFilter, isAllDriversSelected, statusFilter, registeredProductFilter, normalizedFilterFromDate, normalizedFilterToDate, isDateSortEnabled, dateSortDirection, useOriginalRegisteredDate]);
+  }, [orders, driverFilter, isAllDriversSelected, statusFilter, normalizedFilterFromDate, normalizedFilterToDate, isDateSortEnabled, dateSortDirection, useOriginalRegisteredDate]);
 
   const filteredOrdersTotalAmount = useMemo(() => {
     return filteredOrders.reduce((sum, order) => sum + Number(order.total ?? 0), 0);
@@ -786,7 +787,7 @@ export default function OperatorOrdersPage() {
 
     setIsLoading(true);
     try {
-      const params = new URLSearchParams({ limit: String(orderFetchLimit), includeCount: "0" });
+      const params = new URLSearchParams({ limit: String(orderFetchLimit), includeCount: "1" });
       if (normalizedFilterFromDate) params.set("fromDate", normalizedFilterFromDate);
       if (normalizedFilterToDate) params.set("toDate", normalizedFilterToDate);
       const selectedDriverIds = driverFilter.filter((driverId) => driverId !== UNASSIGNED_DRIVER_FILTER_VALUE);
@@ -797,6 +798,7 @@ export default function OperatorOrdersPage() {
       if (debouncedPhoneSearch.trim()) params.set("phone", debouncedPhoneSearch.trim());
       if (debouncedAddressSearch.trim()) params.set("address", debouncedAddressSearch.trim());
       if (debouncedProductSearch.trim()) params.set("product", debouncedProductSearch.trim());
+      if (registeredProductFilter.length > 0) params.set("productIds", registeredProductFilter.join(","));
 
       const shouldLoadMeta = !didLoadMetaRef.current;
       const metaPromise = shouldLoadMeta
@@ -822,6 +824,7 @@ export default function OperatorOrdersPage() {
 
       const parsedOrders = (ordersJson.data ?? []).map((order: any) => toOrderRow(order));
       setOrders(parsedOrders);
+      setTotalOrderCount(Number(ordersJson.meta?.total ?? parsedOrders.length));
 
       const statusMap: Record<string, string> = {};
       const driverMap: Record<string, string> = {};
@@ -883,6 +886,7 @@ export default function OperatorOrdersPage() {
     debouncedPhoneSearch,
     debouncedAddressSearch,
     debouncedProductSearch,
+    registeredProductFilter,
     orderFetchLimit,
     isAbortError,
     toOrderRow,
@@ -1456,6 +1460,17 @@ export default function OperatorOrdersPage() {
       return;
     }
 
+    // Check if anything actually changed before calling API
+    const currentOrder = orders.find((o) => o.id === openDetails.id);
+    const currentPhone = normalizeMnPhone(openDetails.customer?.phone ?? "") ?? (openDetails.customer?.phone ?? "");
+    const draftPhone = normalizeMnPhone(detailsDraft.customerPhone) ?? detailsDraft.customerPhone;
+    const currentAddress = openDetails.shippingAddress ?? openDetails.customer?.address ?? "";
+    const draftAddress = detailsDraft.shippingAddress.trim();
+    const currentNotes = openDetails.notes ?? "";
+    const draftNotes = detailsDraft.notes.trim();
+    const currentAssignedDriverId = currentOrder?.assignedTo?.id ?? "";
+    const draftAssignedDriverId = detailsDraft.assignedDriverId ?? "";
+
     const normalizedItems = detailsDraft.items
       .map((item) => ({
         id: item.id,
@@ -1473,6 +1488,31 @@ export default function OperatorOrdersPage() {
     const normalizedPhone = normalizeMnPhone(detailsDraft.customerPhone);
     if (!normalizedPhone) {
       toast.error("Утасны дугаар дутуу бичигдсэн байна");
+      return;
+    }
+
+    // Compare current items with draft items to detect changes
+    const currentItemsSorted = [...openDetails.items].sort((a, b) => a.id.localeCompare(b.id));
+    const draftNormalizedSorted = [...normalizedItems].sort((a, b) => String(a.id ?? "").localeCompare(String(b.id ?? "")));
+    const itemsChanged =
+      currentItemsSorted.length !== draftNormalizedSorted.length ||
+      currentItemsSorted.some((ci, idx) => {
+        const di = draftNormalizedSorted[idx];
+        return !di || ci.id !== di.id || Number(ci.qty) !== di.qty;
+      });
+
+    const nothingChanged =
+      draftPhone === currentPhone &&
+      draftAddress === currentAddress &&
+      draftNotes === currentNotes &&
+      draftAssignedDriverId === currentAssignedDriverId &&
+      detailsDraft.status === openDetails.status &&
+      detailsDraft.paymentStatus === openDetails.paymentStatus &&
+      !itemsChanged;
+
+    if (nothingChanged) {
+      toast("Өөрчлөлт оруулаагүй байна");
+      handleCloseDetails();
       return;
     }
 
@@ -2186,19 +2226,27 @@ export default function OperatorOrdersPage() {
               )}
             </table>
           </div>
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
-            <span>Харах мөрийн хэмжээ:</span>
-            <select
-              value={orderFetchLimit}
-              onChange={(e) => setOrderFetchLimit(Number(e.target.value))}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {ORDER_LIMIT_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+            <span className="text-slate-500">
+              {totalOrderCount > orderFetchLimit
+                ? `${filteredOrders.length} мөр харагдаж байна · Нийт ${totalOrderCount} захиалга · ${Math.ceil(totalOrderCount / orderFetchLimit)} хуудас байна`
+                : `${filteredOrders.length} мөр`
+              }
+            </span>
+            <div className="flex items-center gap-2">
+              <span>Харах мөрийн хэмжээ:</span>
+              <select
+                value={orderFetchLimit}
+                onChange={(e) => setOrderFetchLimit(Number(e.target.value))}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {ORDER_LIMIT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </Card>
       </div>
