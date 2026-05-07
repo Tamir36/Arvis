@@ -2064,7 +2064,8 @@ export default function OperatorOrdersPage() {
         </div>
 
         <Card padding="none">
-          <div className="sticky top-16 z-20 bg-white">
+          <div className="overflow-x-auto">
+            <div className="sticky top-0 z-20 bg-white">
             <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 shadow-sm supports-[backdrop-filter]:bg-slate-50/95">
               <h2 className="text-sm font-semibold text-slate-700">Бүртгэгдсэн захиалга</h2>
               <div className="ml-2 flex items-center gap-2">
@@ -2087,14 +2088,14 @@ export default function OperatorOrdersPage() {
                 />
               </div>
             </div>
-            <div className="overflow-x-auto border-b border-slate-200 bg-slate-50">
+            <div className="border-b border-slate-200 bg-slate-50">
               <table className="min-w-[1200px] w-full table-fixed text-sm">
                 {renderRegisteredOrdersColGroup()}
                 {renderRegisteredOrdersTableHead()}
               </table>
             </div>
-          </div>
-          <div className="min-h-[420px] overflow-x-auto overflow-y-visible">
+            </div>
+          <div className="min-h-[420px] overflow-y-visible">
             <table className="min-w-[1200px] w-full table-fixed text-sm">
               {renderRegisteredOrdersColGroup()}
               <tbody>
@@ -2240,6 +2241,7 @@ export default function OperatorOrdersPage() {
                 </tfoot>
               )}
             </table>
+          </div>
           </div>
           <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
             <span className="text-slate-500">
