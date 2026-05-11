@@ -133,8 +133,8 @@ export default function OperatorReportView({ mode }: { mode: ViewMode }) {
   return (
     <div>
       <Header
-        title="Операторын тайлан"
-        subtitle={isAdminMode ? "Оператор тус бүрийн авсан захиалгын тайлан" : "Таны авсан захиалгын тайлан"}
+        title="KPI тайлан"
+        subtitle={isAdminMode ? "Оператор тус бүрийн KPI үзүүлэлт" : "Таны KPI үзүүлэлт"}
       />
 
       <div className="space-y-4 p-5">
