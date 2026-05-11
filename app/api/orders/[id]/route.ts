@@ -11,6 +11,29 @@ interface Params {
 const DRIVER_RESERVED_STATUSES = new Set(["CONFIRMED", "SHIPPED", "RETURNED", "DELIVERED"]);
 const DRIVER_STOCK_CONSUMING_STATUSES = new Set(["DELIVERED"]);
 const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURNED"] as const;
+const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
+
+function startOfBusinessDay(date: Date): Date {
+  const shifted = new Date(date.getTime() + BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
+  return new Date(
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    ) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000,
+  );
+}
+
+function isPreviousBusinessDay(date: Date | null | undefined, now = new Date()): boolean {
+  if (!date) return false;
+  const todayStart = startOfBusinessDay(now);
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+  return date >= yesterdayStart && date < todayStart;
+}
 
 function normalizeMnPhone(value: string): string | null {
   const digits = String(value ?? "").replace(/\D/g, "");
@@ -234,6 +257,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
     }
 
+    const role = String(session.user.role ?? "").toUpperCase();
+    const isAdmin = role === "ADMIN";
+
     const body = await req.json();
     const order = await prisma.order.findUnique({
       where: { id },
@@ -253,11 +279,41 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
             receiveOrderNotifications: true,
           },
         },
+        delivery: {
+          include: {
+            timeSlot: {
+              select: {
+                date: true,
+              },
+            },
+          },
+        },
       },
     });
 
     if (!order) {
       return NextResponse.json({ error: "Захиалга олдсонгүй" }, { status: 404 });
+    }
+
+    const hasAssignedDriverIdField = Object.prototype.hasOwnProperty.call(body, "assignedDriverId");
+    const requestedDriverId = hasAssignedDriverIdField
+      ? (body.assignedDriverId ? String(body.assignedDriverId) : null)
+      : order.assignedToId;
+
+    const hasStatusField = typeof body.status === "string" && body.status.trim().length > 0;
+    const requestedStatus = hasStatusField ? String(body.status).trim().toUpperCase() : String(order.status).toUpperCase();
+    const currentStatus = String(order.status).toUpperCase();
+
+    const isDriverChangeAttempt = hasAssignedDriverIdField && requestedDriverId !== order.assignedToId;
+    const isStatusChangeAttempt = hasStatusField && requestedStatus !== currentStatus;
+    const isDriverOrStatusChangeAttempt = isDriverChangeAttempt || isStatusChangeAttempt;
+
+    const isDeliveredOrCancelled = currentStatus === "DELIVERED" || currentStatus === "CANCELLED";
+    const statusAnchorDate = order.delivery?.timeSlot?.date ?? order.updatedAt;
+    const isPreviousDayDeliveredOrCancelled = isDeliveredOrCancelled && isPreviousBusinessDay(statusAnchorDate);
+
+    if (!isAdmin && isDriverOrStatusChangeAttempt && isPreviousDayDeliveredOrCancelled) {
+      return NextResponse.json({ error: "Солих боломжгүй" }, { status: 403 });
     }
 
     const updateData: Prisma.OrderUpdateInput = {};

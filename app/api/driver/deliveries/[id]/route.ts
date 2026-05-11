@@ -33,6 +33,13 @@ function nextDay(date: Date): Date {
   return new Date(date.getTime() + 24 * 60 * 60 * 1000);
 }
 
+function isPreviousBusinessDay(date: Date | null | undefined, now = new Date()): boolean {
+  if (!date) return false;
+  const todayStart = startOfDay(now);
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+  return date >= yesterdayStart && date < todayStart;
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<Params> }) {
   try {
     const { id } = await params;
@@ -94,7 +101,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
         throw new Error("NOT_FOUND");
       }
 
-      const previousStatus = String(order.status);
+      const previousStatus = String(order.status).toUpperCase();
+      const isDeliveredOrCancelled = previousStatus === "DELIVERED" || previousStatus === "CANCELLED";
+      const statusAnchorDate = order.delivery?.timeSlot?.date ?? order.updatedAt;
+
+      if (isDeliveredOrCancelled && isPreviousBusinessDay(statusAnchorDate)) {
+        throw new Error("CHANGE_NOT_ALLOWED");
+      }
+
       const shouldDeduct = !STOCK_CONSUMING_STATUSES.has(previousStatus) && STOCK_CONSUMING_STATUSES.has(nextStatus);
       const shouldRestore = STOCK_CONSUMING_STATUSES.has(previousStatus) && !STOCK_CONSUMING_STATUSES.has(nextStatus);
 
@@ -305,6 +319,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
   } catch (error: any) {
     if (error instanceof Error && error.message === "NOT_FOUND") {
       return NextResponse.json({ error: "Захиалга олдсонгүй" }, { status: 404 });
+    }
+
+    if (error instanceof Error && error.message === "CHANGE_NOT_ALLOWED") {
+      return NextResponse.json({ error: "Солих боломжгүй" }, { status: 403 });
     }
 
     if (error instanceof Error && error.message === "DRIVER_AGENT_NOT_FOUND") {
