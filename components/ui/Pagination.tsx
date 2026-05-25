@@ -78,12 +78,12 @@ export default function Pagination({
 
         {getPages().map((p, i) =>
           p === "..." ? (
-            <span key={i} className="px-2 py-1 text-slate-400 text-sm">
+            <span key={`ellipsis-${i}`} className="px-2 py-1 text-slate-400 text-sm">
               ...
             </span>
           ) : (
             <button
-              key={p}
+              key={`page-${p}`}
               onClick={() => onPageChange(p as number)}
               className={cn(
                 "min-w-[32px] h-8 px-2 rounded-lg text-sm font-medium transition-colors",

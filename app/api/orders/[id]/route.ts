@@ -400,15 +400,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
           await ensureDriverHasStock(nextDriverId, nextItemsForStockValidation);
         }
 
-        // Assigning a driver should keep legacy behavior for status transitions.
-        if (nextDriverId && ["PENDING", "CONFIRMED", "SHIPPED"].includes(String(nextStatus))) {
-          nextStatus = "CONFIRMED";
-        }
-
-        if (!nextDriverId && ["CONFIRMED", "SHIPPED", "RETURNED"].includes(String(nextStatus))) {
-          nextStatus = "PENDING";
-        }
-
         targetDriverId = nextDriverId;
         didChangeDriver = true;
 
@@ -1032,10 +1023,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       timeout: 45000,
     });
 
-    if (didChangeDriver && targetDriverId && targetDriverEmail && targetDriverReceiveNotifications) {
+    const updatedStatus = String(updated.status ?? "").toUpperCase();
+    const becameConfirmed = currentStatus !== "CONFIRMED" && updatedStatus === "CONFIRMED";
+    const shouldSendAssignmentEmail = updatedStatus === "CONFIRMED" && (didChangeDriver || becameConfirmed);
+
+    if (shouldSendAssignmentEmail && updated.assignedTo?.id) {
+      const emailRecipient = await prisma.user.findUnique({
+        where: { id: updated.assignedTo.id },
+        select: {
+          email: true,
+          name: true,
+          receiveOrderNotifications: true,
+        },
+      });
+
+      if (!emailRecipient?.email || !emailRecipient.receiveOrderNotifications) {
+        return NextResponse.json(updated);
+      }
+
       sendDriverAssignmentEmail({
-        driverEmail: targetDriverEmail,
-        driverName: targetDriverName ?? updated.assignedTo?.name ?? "Driver",
+        driverEmail: emailRecipient.email,
+        driverName: emailRecipient.name ?? updated.assignedTo.name ?? targetDriverName ?? "Driver",
         orderNumber: updated.orderNumber,
         customerName: updated.customer.name,
         customerPhone: updated.customer.phone,

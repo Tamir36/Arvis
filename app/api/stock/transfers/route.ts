@@ -53,13 +53,47 @@ async function requireStockAccess() {
   return session;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await requireStockAccess();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [drivers, products, driverStocks, transfers] = await Promise.all([
+  const searchParams = req.nextUrl.searchParams;
+  const pageParam = Number(searchParams.get("page") ?? "1");
+  const limitParam = Number(searchParams.get("limit") ?? "50");
+  const fromDateParam = searchParams.get("fromDate");
+  const toDateParam = searchParams.get("toDate");
+
+  const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 5000) : 50;
+  const skip = (page - 1) * limit;
+
+  const where: { createdAt?: { gte?: Date; lte?: Date } } = {};
+
+  if (fromDateParam || toDateParam) {
+    where.createdAt = {};
+
+    if (fromDateParam) {
+      const fromDate = new Date(`${fromDateParam}T00:00:00.000Z`);
+      if (!Number.isNaN(fromDate.getTime())) {
+        where.createdAt.gte = fromDate;
+      }
+    }
+
+    if (toDateParam) {
+      const toDate = new Date(`${toDateParam}T23:59:59.999Z`);
+      if (!Number.isNaN(toDate.getTime())) {
+        where.createdAt.lte = toDate;
+      }
+    }
+
+    if (Object.keys(where.createdAt).length === 0) {
+      delete where.createdAt;
+    }
+  }
+
+  const [drivers, products, driverStocks, totalTransfers, transfers] = await Promise.all([
     prisma.user.findMany({
       where: { role: "DRIVER", isActive: true },
       select: { id: true, name: true },
@@ -72,7 +106,9 @@ export async function GET() {
     prisma.driverStock.findMany({
       select: { driverId: true, productId: true, quantity: true },
     }),
+    prisma.inventoryTransfer.count({ where }),
     prisma.inventoryTransfer.findMany({
+      where,
       include: {
         createdBy: { select: { id: true, name: true } },
         fromDriver: { select: { id: true, name: true } },
@@ -85,7 +121,8 @@ export async function GET() {
         },
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      skip,
+      take: limit,
     }),
   ]);
 
@@ -123,6 +160,12 @@ export async function GET() {
       ),
     })),
     transfers: serializedTransfers,
+    meta: {
+      total: totalTransfers,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(totalTransfers / limit)),
+    },
   });
 }
 

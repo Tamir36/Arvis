@@ -267,7 +267,7 @@ export default function StockPage() {
 
   return (
     <div>
-      <Header title="Барааны үлдэгдэл" subtitle="Агуулах болон жолоочдын нөөцийн мэдээлэл" />
+      <Header title="Барааны үлдэгдэл" subtitle="Агуулах болон жолоочдын нөөцийн мэдээлэл" showSearch={false} />
 
       <div className="p-5 space-y-4">
         {/* Filter bar */}

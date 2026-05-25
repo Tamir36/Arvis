@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeftRight, Check, ChevronDown, Plus, Trash2 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
@@ -80,26 +80,92 @@ export default function StockMovementsPage() {
   const [items, setItems] = useState<DraftItem[]>([defaultDraftItem()]);
   const [itemQueries, setItemQueries] = useState<Record<string, string>>({});
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [selectedFromFilters, setSelectedFromFilters] = useState<string[]>([]);
+  const [selectedToFilters, setSelectedToFilters] = useState<string[]>([]);
+  const [selectedProductFilters, setSelectedProductFilters] = useState<string[]>([]);
+  const [selectedCreatedByFilters, setSelectedCreatedByFilters] = useState<string[]>([]);
+  const [isFromDropdownOpen, setIsFromDropdownOpen] = useState(false);
+  const [isToDropdownOpen, setIsToDropdownOpen] = useState(false);
+  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
+  const [isCreatedByDropdownOpen, setIsCreatedByDropdownOpen] = useState(false);
+  const [productFilterQuery, setProductFilterQuery] = useState("");
+  const [fromDateFilter, setFromDateFilter] = useState("");
+  const [toDateFilter, setToDateFilter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalTransfers, setTotalTransfers] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/stock/transfers");
+      const params = new URLSearchParams();
+      const isDateFilterActive = fromDateFilter !== "" || toDateFilter !== "";
+      params.set("page", isDateFilterActive ? "1" : String(currentPage));
+      params.set("limit", isDateFilterActive ? "5000" : String(pageSize));
+      if (fromDateFilter) params.set("fromDate", fromDateFilter);
+      if (toDateFilter) params.set("toDate", toDateFilter);
+
+      const res = await fetch(`/api/stock/transfers?${params.toString()}`);
       if (!res.ok) throw new Error("Failed");
       const json = await res.json();
       setDrivers(json.drivers ?? []);
       setProducts(json.products ?? []);
       setTransfers(json.transfers ?? []);
+      setTotalTransfers(Number(json.meta?.total ?? 0));
+      setTotalPages(Number(json.meta?.totalPages ?? 1));
+      if (isDateFilterActive) {
+        setCurrentPage(1);
+      }
     } catch {
       toast.error("Барааны хөдөлгөөний мэдээлэл уншихад алдаа гарлаа");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [currentPage, fromDateFilter, pageSize, toDateFilter]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [pageSize]);
+
+  useEffect(() => {
+    if (fromDateFilter && toDateFilter && fromDateFilter > toDateFilter) {
+      setToDateFilter(fromDateFilter);
+    }
+  }, [fromDateFilter, toDateFilter]);
+
+  useEffect(() => {
+    const element = noteTextareaRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${Math.max(38, element.scrollHeight)}px`;
+  }, [note]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest("[data-transfer-filter-dropdown='from']")) {
+        setIsFromDropdownOpen(false);
+      }
+      if (!target.closest("[data-transfer-filter-dropdown='to']")) {
+        setIsToDropdownOpen(false);
+      }
+      if (!target.closest("[data-transfer-filter-dropdown='product']")) {
+        setIsProductDropdownOpen(false);
+      }
+      if (!target.closest("[data-transfer-filter-dropdown='createdBy']")) {
+        setIsCreatedByDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const locationOptions = useMemo<LocationOption[]>(
     () => [
@@ -259,9 +325,122 @@ export default function StockMovementsPage() {
     }
   };
 
+  const fromFilterOptions = useMemo(
+    () => Array.from(new Set(transfers.map((transfer) => transfer.fromLabel))).sort((a, b) => a.localeCompare(b, "mn")),
+    [transfers]
+  );
+
+  const toFilterOptions = useMemo(
+    () => Array.from(new Set(transfers.map((transfer) => transfer.toLabel))).sort((a, b) => a.localeCompare(b, "mn")),
+    [transfers]
+  );
+
+  const productFilterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          transfers.flatMap((transfer) => transfer.items.map((item) => item.product.name))
+        )
+      ).sort((a, b) => a.localeCompare(b, "mn")),
+    [transfers]
+  );
+
+  const createdByFilterOptions = useMemo(
+    () => Array.from(new Set(transfers.map((transfer) => transfer.createdBy.name))).sort((a, b) => a.localeCompare(b, "mn")),
+    [transfers]
+  );
+
+  useEffect(() => {
+    setSelectedFromFilters((current) => current.filter((value) => fromFilterOptions.includes(value)));
+  }, [fromFilterOptions]);
+
+  useEffect(() => {
+    setSelectedToFilters((current) => current.filter((value) => toFilterOptions.includes(value)));
+  }, [toFilterOptions]);
+
+  useEffect(() => {
+    setSelectedProductFilters((current) => current.filter((value) => productFilterOptions.includes(value)));
+  }, [productFilterOptions]);
+
+  useEffect(() => {
+    setSelectedCreatedByFilters((current) => current.filter((value) => createdByFilterOptions.includes(value)));
+  }, [createdByFilterOptions]);
+
+  const visibleTransfers = useMemo(() => {
+    const hasActiveFilters =
+      selectedFromFilters.length > 0 ||
+      selectedToFilters.length > 0 ||
+      selectedProductFilters.length > 0 ||
+      selectedCreatedByFilters.length > 0 ||
+      fromDateFilter !== "" ||
+      toDateFilter !== "";
+
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+    const parseStartOfDay = (value: string) => {
+      if (!value) return null;
+      const [year, month, day] = value.split("-").map(Number);
+      if (!year || !month || !day) return null;
+      return new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    };
+    const parseEndOfDay = (value: string) => {
+      if (!value) return null;
+      const [year, month, day] = value.split("-").map(Number);
+      if (!year || !month || !day) return null;
+      return new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
+    };
+    const fromTime = parseStartOfDay(fromDateFilter);
+    const toTime = parseEndOfDay(toDateFilter);
+
+    return transfers.filter((transfer) => {
+      const createdAtTime = new Date(transfer.createdAt).getTime();
+      if (!Number.isFinite(createdAtTime)) return false;
+
+      if (!hasActiveFilters) {
+        return createdAtTime >= sevenDaysAgo;
+      }
+
+      if (selectedFromFilters.length > 0 && !selectedFromFilters.includes(transfer.fromLabel)) return false;
+      if (selectedToFilters.length > 0 && !selectedToFilters.includes(transfer.toLabel)) return false;
+
+      if (selectedProductFilters.length > 0) {
+        const transferProductNames = new Set(transfer.items.map((item) => item.product.name));
+        const hasProductMatch = selectedProductFilters.some((name) => transferProductNames.has(name));
+        if (!hasProductMatch) return false;
+      }
+
+      if (selectedCreatedByFilters.length > 0 && !selectedCreatedByFilters.includes(transfer.createdBy.name)) return false;
+
+      if (fromTime && createdAtTime < fromTime) return false;
+      if (toTime && createdAtTime > toTime) return false;
+
+      return true;
+    });
+  }, [fromDateFilter, selectedCreatedByFilters, selectedFromFilters, selectedProductFilters, selectedToFilters, toDateFilter, transfers]);
+
+  const visibleProductFilterOptions = useMemo(() => {
+    const query = productFilterQuery.trim().toLowerCase();
+    if (!query) return productFilterOptions;
+    return productFilterOptions.filter((name) => name.toLowerCase().includes(query));
+  }, [productFilterOptions, productFilterQuery]);
+
+  const toggleFilterValue = (value: string, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
+    setter((current) => (current.includes(value) ? current.filter((entry) => entry !== value) : [...current, value]));
+  };
+
+  const dropdownLabel = (selected: string[]) => {
+    if (selected.length === 0) return "Бүгд";
+    if (selected.length === 1) return selected[0];
+    return `${selected.length} сонгосон`;
+  };
+
   return (
     <div>
-      <Header title="Бараа бүтээгдэхүүний хөдөлгөөн" subtitle="Агуулах болон жолоочдын хооронд бараа шилжүүлэх" />
+      <Header
+        title="Бараа бүтээгдэхүүний хөдөлгөөн"
+        subtitle="Агуулах болон жолоочдын хооронд бараа шилжүүлэх"
+        showSearch={false}
+      />
 
       <div className="p-5 space-y-4">
         <Card>
@@ -269,9 +448,13 @@ export default function StockMovementsPage() {
             <CardTitle>Шинэ хөдөлгөөн бүртгэх</CardTitle>
           </CardHeader>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 items-end">
-            <div className="space-y-2">
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[920px] grid-cols-[260px_24px_260px_minmax(320px,1fr)] items-end gap-x-2 gap-y-1">
               <label className="text-sm font-medium text-slate-700">Хаанаас</label>
+              <div />
+              <label className="text-sm font-medium text-slate-700">Хаашаа</label>
+              <label className="text-sm font-medium text-slate-700">Тайлбар</label>
+
               <select
                 value={fromLocation}
                 onChange={(e) => setFromLocation(e.target.value as LocationValue)}
@@ -281,14 +464,11 @@ export default function StockMovementsPage() {
                   <option key={`from-${option.value}`} value={option.value}>{option.label}</option>
                 ))}
               </select>
-            </div>
 
-            <div className="flex items-center justify-center pb-2 text-slate-400">
-              <ArrowLeftRight className="w-5 h-5" />
-            </div>
+              <div className="flex items-center justify-center self-center -translate-y-1 text-slate-400">
+                <ArrowLeftRight className="w-5 h-5" />
+              </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Хаашаа</label>
               <select
                 value={toLocation}
                 onChange={(e) => setToLocation(e.target.value as LocationValue)}
@@ -298,6 +478,15 @@ export default function StockMovementsPage() {
                   <option key={`to-${option.value}`} value={option.value}>{option.label}</option>
                 ))}
               </select>
+
+              <textarea
+                ref={noteTextareaRef}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={1}
+                placeholder="Жишээ нь: Өглөөний түгээлтэд хуваарилсан"
+                className="w-full resize-none overflow-hidden rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
 
@@ -396,17 +585,6 @@ export default function StockMovementsPage() {
             </div>
           </div>
 
-          <div className="mt-4 space-y-2">
-            <label className="text-sm font-medium text-slate-700">Тайлбар</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              placeholder="Жишээ нь: Өглөөний түгээлтэд хуваарилсан"
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
           <div className="mt-5 flex justify-end">
             <Button type="button" isLoading={isSubmitting} onClick={handleSubmit}>
               Хөдөлгөөн хадгалах
@@ -416,45 +594,281 @@ export default function StockMovementsPage() {
 
         <Card padding="none">
           <div className="border-b border-slate-100 px-5 py-4">
-            <h3 className="text-base font-semibold text-slate-800">Бараа бүтээгдэхүүний хөдөлгөөний дэлгэрэнгүй</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-slate-800">Бараа бүтээгдэхүүний хөдөлгөөний дэлгэрэнгүй</h3>
+              <div className="text-sm text-slate-500">
+                Нийт {totalTransfers} бичлэгээс {visibleTransfers.length} харагдаж байна
+              </div>
+            </div>
           </div>
 
           {isLoading ? (
             <div className="p-12 text-center text-sm text-slate-400">Ачааллаж байна...</div>
-          ) : transfers.length === 0 ? (
+          ) : transfers.length === 0 &&
+            fromDateFilter === "" &&
+            toDateFilter === "" &&
+            selectedFromFilters.length === 0 &&
+            selectedToFilters.length === 0 &&
+            selectedProductFilters.length === 0 &&
+            selectedCreatedByFilters.length === 0 ? (
             <div className="p-12 text-center text-sm text-slate-400">Одоогоор бүртгэл алга</div>
           ) : (
             <div className="max-h-[1320px] overflow-auto">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
+                <colgroup>
+                  <col className="w-[220px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[220px]" />
+                  <col className="w-[240px]" />
+                  <col className="w-[170px]" />
+                </colgroup>
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Код</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Хаанаас - Хаашаа</th>
+                  <tr className="sticky top-0 z-20 bg-slate-50 border-b border-slate-100">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Огноо</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Хаанаас</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Хаашаа</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Бараа</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Тайлбар</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Бүртгэсэн</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Огноо</th>
+                  </tr>
+                  <tr className="sticky top-[43px] z-20 bg-white border-b border-slate-100">
+                    <th className="px-4 py-2 text-left">
+                      <div className="grid grid-cols-2 gap-1">
+                        <input
+                          type="date"
+                          value={fromDateFilter}
+                          onChange={(e) => setFromDateFilter(e.target.value)}
+                          className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <input
+                          type="date"
+                          value={toDateFilter}
+                          onChange={(e) => setToDateFilter(e.target.value)}
+                          className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </th>
+                    <th className="px-4 py-2 text-left">
+                      <div className="relative" data-transfer-filter-dropdown="from">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsFromDropdownOpen((v) => !v);
+                            setIsToDropdownOpen(false);
+                            setIsProductDropdownOpen(false);
+                            setIsCreatedByDropdownOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <span className="truncate">{dropdownLabel(selectedFromFilters)}</span>
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isFromDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {isFromDropdownOpen && (
+                          <div className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-full rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                            {fromFilterOptions.map((option) => {
+                              const checked = selectedFromFilters.includes(option);
+                              return (
+                                <button
+                                  key={`from-option-${option}`}
+                                  type="button"
+                                  onClick={() => toggleFilterValue(option, setSelectedFromFilters)}
+                                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                                >
+                                  <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}><Check className="h-3 w-3" /></span>
+                                  <span className="truncate">{option}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                    <th className="px-4 py-2 text-left">
+                      <div className="relative" data-transfer-filter-dropdown="to">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsToDropdownOpen((v) => !v);
+                            setIsFromDropdownOpen(false);
+                            setIsProductDropdownOpen(false);
+                            setIsCreatedByDropdownOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <span className="truncate">{dropdownLabel(selectedToFilters)}</span>
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isToDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {isToDropdownOpen && (
+                          <div className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-full rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                            {toFilterOptions.map((option) => {
+                              const checked = selectedToFilters.includes(option);
+                              return (
+                                <button
+                                  key={`to-option-${option}`}
+                                  type="button"
+                                  onClick={() => toggleFilterValue(option, setSelectedToFilters)}
+                                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                                >
+                                  <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}><Check className="h-3 w-3" /></span>
+                                  <span className="truncate">{option}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                    <th className="px-4 py-2 text-left">
+                      <div className="relative" data-transfer-filter-dropdown="product">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsProductDropdownOpen((v) => !v);
+                            setIsFromDropdownOpen(false);
+                            setIsToDropdownOpen(false);
+                            setIsCreatedByDropdownOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <span className="truncate">{dropdownLabel(selectedProductFilters)}</span>
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isProductDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {isProductDropdownOpen && (
+                          <div className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-full rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                            <div className="px-1 pb-1">
+                              <input
+                                type="search"
+                                value={productFilterQuery}
+                                onChange={(e) => setProductFilterQuery(e.target.value)}
+                                placeholder="Бараа"
+                                className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div className="max-h-[220px] overflow-y-auto">
+                              {visibleProductFilterOptions.map((option) => {
+                                const checked = selectedProductFilters.includes(option);
+                                return (
+                                  <button
+                                    key={`product-option-${option}`}
+                                    type="button"
+                                    onClick={() => toggleFilterValue(option, setSelectedProductFilters)}
+                                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}><Check className="h-3 w-3" /></span>
+                                    <span className="truncate">{option}</span>
+                                  </button>
+                                );
+                              })}
+                              {visibleProductFilterOptions.length === 0 && (
+                                <div className="px-2 py-2 text-[11px] text-slate-400">Бараа олдсонгүй</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                    <th className="px-4 py-2 text-left" />
+                    <th className="px-4 py-2 text-left">
+                      <div className="relative" data-transfer-filter-dropdown="createdBy">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatedByDropdownOpen((v) => !v);
+                            setIsFromDropdownOpen(false);
+                            setIsToDropdownOpen(false);
+                            setIsProductDropdownOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <span className="truncate">{dropdownLabel(selectedCreatedByFilters)}</span>
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isCreatedByDropdownOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {isCreatedByDropdownOpen && (
+                          <div className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-full rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+                            {createdByFilterOptions.map((option) => {
+                              const checked = selectedCreatedByFilters.includes(option);
+                              return (
+                                <button
+                                  key={`createdBy-option-${option}`}
+                                  type="button"
+                                  onClick={() => toggleFilterValue(option, setSelectedCreatedByFilters)}
+                                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
+                                >
+                                  <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${checked ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}><Check className="h-3 w-3" /></span>
+                                  <span className="truncate">{option}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {transfers.map((transfer) => (
-                    <tr key={transfer.id} className="align-top">
-                      <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{transfer.referenceCode}</td>
-                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{transfer.fromLabel} - {transfer.toLabel}</td>
-                      <td className="px-4 py-3 text-slate-700">
-                        <div className="space-y-1">
-                          {transfer.items.map((item) => (
-                            <p key={item.id}>{item.product.name} - {item.quantity}ш</p>
-                          ))}
-                        </div>
+                  {visibleTransfers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
+                        Шүүлтүүрт тохирох бүртгэл олдсонгүй
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{transfer.note || "-"}</td>
-                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{transfer.createdBy.name}</td>
-                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatDateTime(transfer.createdAt)}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    visibleTransfers.map((transfer) => (
+                      <tr key={transfer.id} className="align-top">
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{formatDateTime(transfer.createdAt)}</td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{transfer.fromLabel}</td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{transfer.toLabel}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <div className="space-y-1">
+                            {transfer.items.map((item) => (
+                              <p key={item.id}>{item.product.name} - {item.quantity}ш</p>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">{transfer.note || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{transfer.createdBy.name}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!isLoading && (fromDateFilter === "" && toDateFilter === "") && totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+              <div className="text-sm text-slate-500">Хуудас {currentPage} / {totalPages}</div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-500">Хуудасны хэмжээ</label>
+                <select
+                  value={String(pageSize)}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                >
+                  Өмнөх
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                >
+                  Дараах
+                </Button>
+              </div>
             </div>
           )}
         </Card>

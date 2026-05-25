@@ -468,18 +468,16 @@ function createRegistrationItem(): RegistrationItem {
 }
 
 function normalizeRegistrationItems(items: RegistrationItem[]): RegistrationItem[] {
-  const next = items.filter((item, index) => item.productId || index === 0);
-
-  if (next.length === 0) {
+  if (items.length === 0) {
     return [createRegistrationItem()];
   }
 
-  const lastItem = next[next.length - 1];
+  const lastItem = items[items.length - 1];
   if (!lastItem.productId) {
-    return next;
+    return items;
   }
 
-  return [...next, createRegistrationItem()];
+  return [...items, createRegistrationItem()];
 }
 
 function sanitizeMoneyInput(value: string): string {
@@ -578,7 +576,6 @@ export default function OperatorOrdersPage() {
   const toDateInputRef = useRef<HTMLInputElement | null>(null);
   const latestFetchRequestRef = useRef(0);
   const fetchAbortRef = useRef<AbortController | null>(null);
-  const didLoadMetaRef = useRef(false);
   const detailsCacheRef = useRef<Record<string, OrderDetails>>({});
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [isDriverDropdownOpen, setIsDriverDropdownOpen] = useState(false);
@@ -679,19 +676,10 @@ export default function OperatorOrdersPage() {
   }, [filteredOrders]);
 
   const productFilterOptions = useMemo<FilterProductOption[]>(() => {
-    const map = new Map<string, string>();
-    for (const order of orders) {
-      for (const item of order.items) {
-        if (!map.has(item.product.id)) {
-          map.set(item.product.id, item.product.name);
-        }
-      }
-    }
-
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
+    return products
+      .map((product) => ({ id: product.id, name: product.name }))
       .sort((a, b) => a.name.localeCompare(b.name, "mn"));
-  }, [orders]);
+  }, [products]);
 
   const visibleProductFilterOptions = useMemo(() => {
     const query = productFilterQuery.trim().toLowerCase();
@@ -800,15 +788,12 @@ export default function OperatorOrdersPage() {
       if (debouncedProductSearch.trim()) params.set("product", debouncedProductSearch.trim());
       if (registeredProductFilter.length > 0) params.set("productIds", registeredProductFilter.join(","));
 
-      const shouldLoadMeta = !didLoadMetaRef.current;
-      const metaPromise = shouldLoadMeta
-        ? fetch("/api/orders/meta", { signal: controller.signal, cache: "no-store" }).catch((error) => {
-            if (isAbortError(error)) {
-              return null;
-            }
-            throw error;
-          })
-        : null;
+      const metaPromise = fetch("/api/orders/meta", { signal: controller.signal, cache: "no-store" }).catch((error) => {
+        if (isAbortError(error)) {
+          return null;
+        }
+        throw error;
+      });
 
       const ordersRes = await fetch(`/api/orders?${params.toString()}`, { signal: controller.signal, cache: "no-store" });
 
@@ -835,35 +820,39 @@ export default function OperatorOrdersPage() {
       setPendingStatuses(statusMap);
       setPendingDriverIds(driverMap);
 
-      if (metaPromise) {
-        const metaRes = await metaPromise;
-        if (!metaRes) {
-          return;
-        }
-        if (!metaRes.ok) {
-          throw new Error("failed");
-        }
-
-        if (requestId !== latestFetchRequestRef.current || controller.signal.aborted) {
-          return;
-        }
-
-        const metaJson = await metaRes.json();
-        const parsedProducts = (metaJson.products ?? []).map((product: any) => ({
-          id: product.id,
-          name: product.name,
-          basePrice: Number(product.basePrice),
-        }));
-
-        const parsedDrivers = (metaJson.drivers ?? []).map((driver: any) => ({
-          id: driver.id,
-          name: driver.name,
-        }));
-
-        setProducts(parsedProducts);
-        setDrivers(parsedDrivers);
-        didLoadMetaRef.current = true;
+      const metaRes = await metaPromise;
+      if (!metaRes) {
+        return;
       }
+      if (!metaRes.ok) {
+        throw new Error("failed");
+      }
+
+      if (requestId !== latestFetchRequestRef.current || controller.signal.aborted) {
+        return;
+      }
+
+      const metaJson = await metaRes.json();
+      const parsedProducts = (metaJson.products ?? []).map((product: any) => ({
+        id: product.id,
+        name: product.name,
+        basePrice: Number(product.basePrice),
+      }));
+
+      const parsedDrivers = (metaJson.drivers ?? []).map((driver: any) => ({
+        id: driver.id,
+        name: driver.name,
+      }));
+
+      const activeDriverIds = new Set(parsedDrivers.map((driver: DriverOption) => driver.id));
+      setProducts(parsedProducts);
+      setDrivers(parsedDrivers);
+      setDriverFilter((current) => {
+        const next = current.filter((id) => id === UNASSIGNED_DRIVER_FILTER_VALUE || activeDriverIds.has(id));
+        const isSame = next.length === current.length && next.every((id, index) => id === current[index]);
+        return isSame ? current : next;
+      });
+      setSelectedDriverId((current) => (current && !activeDriverIds.has(current) ? "" : current));
     } catch (error) {
       if (isAbortError(error)) {
         return;
@@ -1498,7 +1487,13 @@ export default function OperatorOrdersPage() {
       currentItemsSorted.length !== draftNormalizedSorted.length ||
       currentItemsSorted.some((ci, idx) => {
         const di = draftNormalizedSorted[idx];
-        return !di || ci.id !== di.id || Number(ci.qty) !== di.qty;
+        return (
+          !di
+          || ci.id !== di.id
+          || ci.product.id !== di.productId
+          || Number(ci.qty) !== di.qty
+          || Number(ci.unitPrice) !== di.unitPrice
+        );
       });
 
     const nothingChanged =
@@ -1712,7 +1707,10 @@ export default function OperatorOrdersPage() {
                     <button
                       key={product.id}
                       type="button"
-                      onClick={() => toggleProductFilter(product.id)}
+                      onClick={() => {
+                        toggleProductFilter(product.id);
+                        setProductFilterQuery("");
+                      }}
                       className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-slate-700 hover:bg-slate-100"
                     >
                       <span className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded border ${isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white text-transparent"}`}>

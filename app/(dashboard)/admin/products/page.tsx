@@ -69,7 +69,7 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <Header title={mn.products.title} subtitle="Бараа бүтээгдэхүүний жагсаалт" />
+      <Header title={mn.products.title} subtitle="Бараа бүтээгдэхүүний жагсаалт" showSearch={false} />
 
       <div className="p-5 space-y-4">
         {/* Actions bar */}
