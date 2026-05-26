@@ -13,6 +13,7 @@ interface ProductOption {
   id: string;
   name: string;
   basePrice: number;
+  status: string;
 }
 
 interface DriverOption {
@@ -588,6 +589,11 @@ export default function OperatorOrdersPage() {
   const isAdmin = role === "ADMIN";
   const useOriginalRegisteredDate = role === "ADMIN" || role === "OPERATOR";
 
+  const getProductDisplayLabel = useCallback((product: ProductOption) => {
+    const isInactive = String(product.status ?? "").toUpperCase() !== "ACTIVE";
+    return isInactive ? `${product.name} (Идэвхгүй)` : product.name;
+  }, []);
+
   const registrationLineItems = useMemo(() => {
     return registrationItems.map((item) => {
       const product = products.find((entry) => entry.id === item.productId);
@@ -684,7 +690,7 @@ export default function OperatorOrdersPage() {
   const visibleProductFilterOptions = useMemo(() => {
     const query = productFilterQuery.trim().toLowerCase();
     if (!query) return productFilterOptions;
-    return productFilterOptions.filter((product) => product.name.toLowerCase().includes(query));
+      return productFilterOptions.filter((product) => product.name.toLowerCase().includes(query));
   }, [productFilterOptions, productFilterQuery]);
 
   const productFilterLabel = useMemo(() => {
@@ -837,6 +843,7 @@ export default function OperatorOrdersPage() {
         id: product.id,
         name: product.name,
         basePrice: Number(product.basePrice),
+          status: String(product.status ?? ""),
       }));
 
       const parsedDrivers = (metaJson.drivers ?? []).map((driver: any) => ({
@@ -1339,7 +1346,7 @@ export default function OperatorOrdersPage() {
   };
 
   const handleSelectDraftProduct = (index: number, product: ProductOption) => {
-    setDraftItemQueries((current) => ({ ...current, [index]: product.name }));
+    setDraftItemQueries((current) => ({ ...current, [index]: getProductDisplayLabel(product) }));
     handleDraftItemChange(index, "productId", product.id);
     setActiveDraftProductIndex(null);
   };
@@ -1588,7 +1595,7 @@ export default function OperatorOrdersPage() {
   };
 
   const handleSelectRegistrationProduct = (itemId: string, product: ProductOption) => {
-    setRegistrationProductQueries((current) => ({ ...current, [itemId]: product.name }));
+    setRegistrationProductQueries((current) => ({ ...current, [itemId]: getProductDisplayLabel(product) }));
     handleRegistrationProductChange(itemId, product.id);
     setActiveRegistrationProductId(null);
   };
@@ -1922,7 +1929,7 @@ export default function OperatorOrdersPage() {
                           <div key={item.id} className="relative">
                             <input
                               type="text"
-                              value={registrationProductQueries[item.id] ?? products.find((product) => product.id === item.productId)?.name ?? ""}
+                              value={registrationProductQueries[item.id] ?? (products.find((product) => product.id === item.productId) ? getProductDisplayLabel(products.find((product) => product.id === item.productId) as ProductOption) : "")}
                               onFocus={() => setActiveRegistrationProductId(item.id)}
                               onBlur={() => {
                                 window.setTimeout(() => {
@@ -1953,7 +1960,7 @@ export default function OperatorOrdersPage() {
                                       }}
                                       className="block w-full whitespace-normal break-words px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-blue-50"
                                     >
-                                      {product.name}
+                                      {getProductDisplayLabel(product)}
                                     </button>
                                   ))}
                               </div>
@@ -2421,7 +2428,7 @@ export default function OperatorOrdersPage() {
                             <div className="relative">
                               <input
                                 type="text"
-                                value={draftItemQueries[index] ?? products.find((product) => product.id === item.productId)?.name ?? ""}
+                                value={draftItemQueries[index] ?? (products.find((product) => product.id === item.productId) ? getProductDisplayLabel(products.find((product) => product.id === item.productId) as ProductOption) : "")}
                                 onFocus={() => setActiveDraftProductIndex(index)}
                                 onBlur={() => {
                                   window.setTimeout(() => {
@@ -2452,7 +2459,7 @@ export default function OperatorOrdersPage() {
                                         }}
                                         className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-slate-100"
                                       >
-                                        <span className="truncate text-slate-700">{product.name}</span>
+                                        <span className="truncate text-slate-700">{getProductDisplayLabel(product)}</span>
                                         <span className="text-xs text-slate-400">{formatPrice(product.basePrice)}</span>
                                       </button>
                                     ))}

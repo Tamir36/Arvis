@@ -9,7 +9,7 @@ const META_CACHE_TTL_MS = 30_000;
 
 type OrdersMetaPayload = {
   drivers: Array<{ id: string; name: string }>;
-  products: Array<{ id: string; name: string; basePrice: unknown }>;
+  products: Array<{ id: string; name: string; basePrice: unknown; status: string }>;
 };
 
 let metaCache: { expiresAt: number; payload: OrdersMetaPayload } | null = null;
@@ -33,8 +33,7 @@ async function loadOrdersMeta(): Promise<OrdersMetaPayload> {
         orderBy: { name: "asc" },
       }),
       prisma.product.findMany({
-        where: { status: "ACTIVE" },
-        select: { id: true, name: true, basePrice: true },
+        select: { id: true, name: true, basePrice: true, status: true },
         orderBy: { name: "asc" },
       }),
     ]);
