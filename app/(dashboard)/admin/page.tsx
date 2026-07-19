@@ -5,12 +5,14 @@ import { formatPrice, formatDate } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import StatsCard from "@/components/ui/StatsCard";
 import Header from "@/components/layout/Header";
+import Button from "@/components/ui/Button";
 import {
   ShoppingCart,
   Package,
   Users,
   TrendingUp,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 import {
   AreaChart,
@@ -65,16 +67,6 @@ type ProductStatusSummaryRow = {
   total: number;
 };
 
-interface ProductStatusReportOrder {
-  status: string;
-  items: Array<{
-    qty: number;
-    product: {
-      name: string;
-    };
-  }>;
-}
-
 const STATUS_META = [
   { key: "BLANK", color: "#94a3b8", label: "Blank" },
   { key: "PENDING", color: "#2563eb", label: "Хүлээлгэ" },
@@ -94,8 +86,57 @@ export default function AdminDashboard() {
   const [reportToDate, setReportToDate] = useState(todayString);
   const [productStatusRows, setProductStatusRows] = useState<ProductStatusSummaryRow[]>([]);
   const [productStatusLoading, setProductStatusLoading] = useState(false);
+  const [isExportingProductReport, setIsExportingProductReport] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const handleExportProductStatusReport = () => {
+    if (productStatusRows.length === 0) return;
+
+    setIsExportingProductReport(true);
+    try {
+      const escapeCsv = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+      const header = [
+        "Бараа",
+        "Хүргэгдсэн",
+        "Хуваарилсан",
+        "Хойшлуулсан",
+        "Blank",
+        "Хүлээгдэж байгаа",
+        "Цуцалсан",
+        "Нийлбэр",
+      ];
+
+      const rows = productStatusRows.map((row) => [
+        row.productName,
+        row.DELIVERED,
+        row.CONFIRMED,
+        row.RETURNED,
+        row.BLANK,
+        row.PENDING,
+        row.CANCELLED,
+        row.total,
+      ]);
+
+      const csvContent = [header, ...rows]
+        .map((line) => line.map((cell) => escapeCsv(cell)).join(","))
+        .join("\n");
+
+      const blob = new Blob([`\uFEFF${csvContent}`], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeFromDate = reportFromDate || "from";
+      const safeToDate = reportToDate || "to";
+      link.href = url;
+      link.download = `baraanii-tailan-${safeFromDate}-${safeToDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExportingProductReport(false);
+    }
+  };
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -120,67 +161,20 @@ export default function AdminDashboard() {
     const fetchProductStatusReport = async () => {
       setProductStatusLoading(true);
       try {
-        const fromDate = reportFromDate;
-        const toDate = reportToDate;
-        const pageSize = 600;
-        const collectedOrders: ProductStatusReportOrder[] = [];
+        const params = new URLSearchParams({
+          reportMode: "product-status",
+          fromDate: reportFromDate,
+          toDate: reportToDate,
+        });
 
-        for (let page = 1; page <= 20; page += 1) {
-          const params = new URLSearchParams({
-            fromDate,
-            toDate,
-            page: String(page),
-            limit: String(pageSize),
-            includeCount: "0",
-          });
-
-          const response = await fetch(`/api/orders?${params.toString()}`);
-          if (!response.ok) {
-            throw new Error("Failed to fetch orders for report");
-          }
-
-          const json = await response.json();
-          const rows = Array.isArray(json.data) ? json.data : [];
-          collectedOrders.push(...rows);
-
-          if (rows.length < pageSize) {
-            break;
-          }
+        const response = await fetch(`/api/orders?${params.toString()}`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch product status report");
         }
 
-        const summary = new Map<string, ProductStatusSummaryRow>();
-        const allowedStatuses: ProductStatusKey[] = ["DELIVERED", "CONFIRMED", "RETURNED", "BLANK", "PENDING", "CANCELLED"];
-
-        for (const order of collectedOrders) {
-          const status = String(order.status ?? "").toUpperCase() as ProductStatusKey;
-          if (!allowedStatuses.includes(status)) continue;
-
-          for (const item of order.items ?? []) {
-            const productName = String(item.product?.name ?? "").trim();
-            const qty = Number(item.qty ?? 0);
-            if (!productName || !Number.isFinite(qty) || qty <= 0) continue;
-
-            if (!summary.has(productName)) {
-              summary.set(productName, {
-                productName,
-                DELIVERED: 0,
-                CONFIRMED: 0,
-                RETURNED: 0,
-                BLANK: 0,
-                PENDING: 0,
-                CANCELLED: 0,
-                total: 0,
-              });
-            }
-
-            const row = summary.get(productName)!;
-            row[status] += qty;
-            row.total += qty;
-          }
-        }
-
-        const rows = Array.from(summary.values()).sort((a, b) => b.total - a.total || a.productName.localeCompare(b.productName));
-        setProductStatusRows(rows);
+        const json = await response.json();
+        const rows = Array.isArray(json.data) ? json.data : [];
+        setProductStatusRows(rows as ProductStatusSummaryRow[]);
       } catch {
         setProductStatusRows([]);
       } finally {
@@ -366,6 +360,18 @@ export default function AdminDashboard() {
                   onChange={(e) => setReportToDate(e.target.value)}
                   className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-700"
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  leftIcon={<Download className="w-4 h-4" />}
+                  onClick={handleExportProductStatusReport}
+                  disabled={productStatusLoading || productStatusRows.length === 0 || isExportingProductReport}
+                  isLoading={isExportingProductReport}
+                >
+                  Excel татах
+                </Button>
               </div>
             </div>
             <div className="mt-4 overflow-x-auto">

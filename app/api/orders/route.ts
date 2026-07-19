@@ -17,6 +17,7 @@ const CONTACT_LABELS: Record<string, string> = {
 };
 
 const ALL_ORDER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"] as const;
+const PRODUCT_STATUS_REPORT_STATUSES = ["DELIVERED", "CONFIRMED", "RETURNED", "BLANK", "PENDING", "CANCELLED"] as const;
 
 const ROLLOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
 const HISTORICAL_EXCLUDED_CARRYOVER_STATUSES = ["BLANK", "PENDING", "CONFIRMED", "PACKED", "SHIPPED", "RETURNED"] as const;
@@ -27,6 +28,61 @@ const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
 
 let lastRolloverRunAt = 0;
 let rolloverInFlight: Promise<void> | null = null;
+
+function buildProductStatusReportRows(
+  orders: Array<{
+    status: string;
+    items: Array<{
+      qty: number;
+      product: {
+        name: string;
+      } | null;
+    }>;
+  }>,
+) {
+  type ProductStatusKey = (typeof PRODUCT_STATUS_REPORT_STATUSES)[number];
+
+  const summary = new Map<string, {
+    productName: string;
+    DELIVERED: number;
+    CONFIRMED: number;
+    RETURNED: number;
+    BLANK: number;
+    PENDING: number;
+    CANCELLED: number;
+    total: number;
+  }>();
+
+  for (const order of orders) {
+    const status = String(order.status ?? "").toUpperCase() as ProductStatusKey;
+    if (!(PRODUCT_STATUS_REPORT_STATUSES as readonly string[]).includes(status)) continue;
+
+    for (const item of order.items ?? []) {
+      const productName = String(item.product?.name ?? "").trim();
+      const qty = Number(item.qty ?? 0);
+      if (!productName || !Number.isFinite(qty) || qty <= 0) continue;
+
+      if (!summary.has(productName)) {
+        summary.set(productName, {
+          productName,
+          DELIVERED: 0,
+          CONFIRMED: 0,
+          RETURNED: 0,
+          BLANK: 0,
+          PENDING: 0,
+          CANCELLED: 0,
+          total: 0,
+        });
+      }
+
+      const row = summary.get(productName)!;
+      row[status] += qty;
+      row.total += qty;
+    }
+  }
+
+  return Array.from(summary.values()).sort((a, b) => b.total - a.total || a.productName.localeCompare(b.productName));
+}
 
 function startOfDay(date: Date): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -422,6 +478,7 @@ export async function GET(req: NextRequest) {
     const productIdsParam = searchParams.get("productIds") ?? "";
     const statusesParam = searchParams.get("statuses") ?? "";
     const driverIdsParam = searchParams.get("driverIds") ?? "";
+    const reportMode = searchParams.get("reportMode") ?? "";
     const fromDate = searchParams.get("fromDate");
     const toDate = searchParams.get("toDate");
 
@@ -774,6 +831,29 @@ export async function GET(req: NextRequest) {
 
     if (andFilters.length > 0) {
       where.AND = andFilters;
+    }
+
+    if (reportMode === "product-status") {
+      const reportOrders = await prisma.order.findMany({
+        where,
+        select: {
+          status: true,
+          items: {
+            select: {
+              qty: true,
+              product: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      return NextResponse.json({
+        data: buildProductStatusReportRows(reportOrders),
+      });
     }
 
     const data = await prisma.order.findMany({
