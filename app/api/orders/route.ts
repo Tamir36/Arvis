@@ -25,9 +25,47 @@ const DRIVER_RESERVED_FOR_ASSIGNMENT_STATUSES = ["CONFIRMED", "SHIPPED", "RETURN
 const ROLLOVER_MIN_INTERVAL_MS = 60_000;
 const BUSINESS_TIME_ZONE = "Asia/Ulaanbaatar";
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
+const ORDER_NUMBER_MAX_RETRY = 5;
 
 let lastRolloverRunAt = 0;
 let rolloverInFlight: Promise<void> | null = null;
+
+function isOrderNumberUniqueConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code !== "P2002") return false;
+
+  const target = Array.isArray(error.meta?.target)
+    ? error.meta?.target.join(",")
+    : String(error.meta?.target ?? "");
+
+  return target.includes("orderNumber");
+}
+
+function isRetryableOrderCreateError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // P2028/P2034 are commonly thrown for transaction timeout / write conflict / deadlock scenarios.
+    if (error.code === "P2028" || error.code === "P2034") {
+      return true;
+    }
+  }
+
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error ?? "").toLowerCase();
+  return (
+    message.includes("deadlock")
+    || message.includes("lock wait timeout")
+    || message.includes("transaction") && message.includes("timed out")
+    || message.includes("try restarting transaction")
+  );
+}
+
+async function waitBeforeRetry(attempt: number): Promise<void> {
+  const delayMs = Math.min(300, attempt * 75);
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function getPrismaKnownError(error: unknown): Prisma.PrismaClientKnownRequestError | null {
+  return error instanceof Prisma.PrismaClientKnownRequestError ? error : null;
+}
 
 function buildProductStatusReportRows(
   orders: Array<{
@@ -1076,8 +1114,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const order = await prisma.$transaction(async (tx) => {
-      const createdOrder = await tx.order.create({
+    let order: any = null;
+
+    for (let attempt = 1; attempt <= ORDER_NUMBER_MAX_RETRY; attempt += 1) {
+      try {
+        order = await prisma.$transaction(async (tx) => {
+          const createdOrder = await tx.order.create({
         data: {
           orderNumber: generateOrderNumber(),
           customerId: customer.id,
@@ -1207,53 +1249,77 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      if (isInitiallyDelivered) {
-        const requiredByProduct = new Map<string, { qty: number; name: string }>();
-        for (const item of computedItems) {
-          const previous = requiredByProduct.get(item.productId);
-          requiredByProduct.set(item.productId, {
-            qty: (previous?.qty ?? 0) + item.qty,
-            name: item.name,
-          });
-        }
+          if (isInitiallyDelivered) {
+            const requiredByProduct = new Map<string, { qty: number; name: string }>();
+            for (const item of computedItems) {
+              const previous = requiredByProduct.get(item.productId);
+              requiredByProduct.set(item.productId, {
+                qty: (previous?.qty ?? 0) + item.qty,
+                name: item.name,
+              });
+            }
 
-        if (assignedDriverId) {
-          for (const [productId, required] of Array.from(requiredByProduct.entries())) {
-            const updateResult = await tx.driverStock.updateMany({
-              where: {
-                driverId: assignedDriverId,
-                productId,
-                quantity: { gte: required.qty },
-              },
-              data: { quantity: { decrement: required.qty } },
-            });
+            if (assignedDriverId) {
+              for (const [productId, required] of Array.from(requiredByProduct.entries())) {
+                const updateResult = await tx.driverStock.updateMany({
+                  where: {
+                    driverId: assignedDriverId,
+                    productId,
+                    quantity: { gte: required.qty },
+                  },
+                  data: { quantity: { decrement: required.qty } },
+                });
 
-            if (updateResult.count === 0) {
-              throw new Error(`INSUFFICIENT_DRIVER_STOCK:${required.name}`);
+                if (updateResult.count === 0) {
+                  throw new Error(`INSUFFICIENT_DRIVER_STOCK:${required.name}`);
+                }
+              }
+            } else {
+              for (const [productId, required] of Array.from(requiredByProduct.entries())) {
+                const updateResult = await tx.inventory.updateMany({
+                  where: {
+                    productId,
+                    quantity: { gte: required.qty },
+                  },
+                  data: { quantity: { decrement: required.qty } },
+                });
+
+                if (updateResult.count === 0) {
+                  throw new Error(`INSUFFICIENT_WAREHOUSE_STOCK:${required.name}`);
+                }
+              }
             }
           }
-        } else {
-          for (const [productId, required] of Array.from(requiredByProduct.entries())) {
-            const updateResult = await tx.inventory.updateMany({
-              where: {
-                productId,
-                quantity: { gte: required.qty },
-              },
-              data: { quantity: { decrement: required.qty } },
-            });
 
-            if (updateResult.count === 0) {
-              throw new Error(`INSUFFICIENT_WAREHOUSE_STOCK:${required.name}`);
-            }
+          return createdOrder;
+        }, {
+          maxWait: 45000,
+          timeout: 45000,
+        });
+
+        break;
+      } catch (error) {
+        const shouldRetryUniqueOrderNumber = isOrderNumberUniqueConflict(error);
+        const shouldRetryTransientFailure = isRetryableOrderCreateError(error);
+
+        if ((shouldRetryUniqueOrderNumber || shouldRetryTransientFailure) && attempt < ORDER_NUMBER_MAX_RETRY) {
+          if (shouldRetryTransientFailure) {
+            console.warn("Order create transient failure, retrying", {
+              attempt,
+              maxAttempts: ORDER_NUMBER_MAX_RETRY,
+              message: error instanceof Error ? error.message : String(error),
+            });
+            await waitBeforeRetry(attempt);
           }
+          continue;
         }
+        throw error;
       }
+    }
 
-      return createdOrder;
-    }, {
-      maxWait: 45000,
-      timeout: 45000,
-    });
+    if (!order) {
+      return NextResponse.json({ error: "Захиалга хадгалах үед алдаа гарлаа" }, { status: 500 });
+    }
 
     return NextResponse.json(order, { status: 201 });
   } catch (err) {
@@ -1282,7 +1348,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.error(err);
-    return NextResponse.json({ error: "Алдаа гарлаа" }, { status: 500 });
+    const prismaError = getPrismaKnownError(err);
+    if (prismaError) {
+      if (prismaError.code === "P2002") {
+        return NextResponse.json(
+          { error: "Захиалгын дугаар давхцсан тул дахин оролдоно уу" },
+          { status: 409 },
+        );
+      }
+
+      if (prismaError.code === "P2003") {
+        return NextResponse.json(
+          { error: "Холбогдох өгөгдөл олдсонгүй. Дахин нэвтэрч оролдоно уу" },
+          { status: 400 },
+        );
+      }
+
+      if (prismaError.code === "P2028" || prismaError.code === "P2034") {
+        return NextResponse.json(
+          { error: "Өгөгдлийн сан ачаалалтай байна. Дахин оролдоно уу" },
+          { status: 503 },
+        );
+      }
+    }
+
+    const errorRef = `ORD_CREATE_${Date.now()}`;
+
+    console.error("Order create failed", {
+      errorRef,
+      error: err,
+      message: err instanceof Error ? err.message : String(err),
+      prismaCode: prismaError?.code ?? null,
+      prismaMeta: prismaError?.meta ?? null,
+    });
+    return NextResponse.json({ error: `Алдаа гарлаа (${errorRef})` }, { status: 500 });
   }
 }

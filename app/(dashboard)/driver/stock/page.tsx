@@ -92,6 +92,10 @@ export default function DriverStockPage() {
     return stocks.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
   }, [stocks]);
 
+  const positiveStocks = useMemo(() => {
+    return stocks.filter((row) => Number(row.quantity) > 0);
+  }, [stocks]);
+
   const dayOptions = useMemo(() => {
     const days = new Set<string>();
     movements.forEach((row) => {
@@ -153,11 +157,11 @@ export default function DriverStockPage() {
           </CardHeader>
 
           <div className="px-3 pb-3">
-            {!loading && stocks.length === 0 ? (
-              <p className="text-sm text-slate-400">Үлдэгдлийн мэдээлэл алга</p>
+            {!loading && positiveStocks.length === 0 ? (
+              <p className="text-sm text-slate-400">0-с дээш үлдэгдэлтэй бараа алга</p>
             ) : (
               <ul className="divide-y divide-slate-100">
-                {stocks.map((row) => (
+                {positiveStocks.map((row) => (
                   <li key={row.id} className="py-2 text-sm text-slate-700">
                     {row.product.name} - <span className="font-semibold text-slate-900">{Number(row.quantity).toLocaleString("mn-MN")} ш</span>
                   </li>

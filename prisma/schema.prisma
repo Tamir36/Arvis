@@ -426,6 +426,7 @@ model OrderAuditLog {
   @@index([orderId, action, createdAt])
   @@index([userId, createdAt])
   @@index([action, createdAt])
+  @@index([action, newValue, createdAt])
 
   @@map("order_audit_logs")
 }

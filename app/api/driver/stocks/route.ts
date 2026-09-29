@@ -329,7 +329,9 @@ export async function GET() {
       .filter((movement) => movement.items.length > 0)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    return NextResponse.json({ stocks, stockHistory, movements });
+    const positiveStocks = stocks.filter((row) => Number(row.quantity) > 0);
+
+    return NextResponse.json({ stocks: positiveStocks, stockHistory, movements });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Алдаа гарлаа" }, { status: 500 });

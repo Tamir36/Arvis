@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,6 +14,17 @@ type OrdersMetaPayload = {
 
 let metaCache: { expiresAt: number; payload: OrdersMetaPayload } | null = null;
 let metaInFlight: Promise<OrdersMetaPayload> | null = null;
+
+function normalizeMnPhone(value: string): string | null {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+
+  const normalized = digits.startsWith("976") && digits.length === 11
+    ? digits.slice(3)
+    : digits;
+
+  return /^\d{8}$/.test(normalized) ? normalized : null;
+}
 
 async function loadOrdersMeta(): Promise<OrdersMetaPayload> {
   const now = Date.now();
@@ -53,11 +64,55 @@ async function loadOrdersMeta(): Promise<OrdersMetaPayload> {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Нэвтрэх шаардлагатай" }, { status: 401 });
+    }
+
+    const requestedPhone = req.nextUrl.searchParams.get("phone")?.trim() ?? "";
+    if (requestedPhone) {
+      const normalizedPhone = normalizeMnPhone(requestedPhone);
+      if (!normalizedPhone) {
+        return NextResponse.json({ customerAddress: null });
+      }
+
+      const [latestOrderByPhone, latestCustomerByPhone] = await Promise.all([
+        prisma.order.findFirst({
+          where: {
+            customer: {
+              phone: normalizedPhone,
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            shippingAddress: true,
+            customer: {
+              select: {
+                address: true,
+              },
+            },
+          },
+        }),
+        prisma.customer.findFirst({
+          where: {
+            phone: normalizedPhone,
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            address: true,
+          },
+        }),
+      ]);
+
+      const customerAddress =
+        latestOrderByPhone?.shippingAddress?.trim()
+        || latestOrderByPhone?.customer?.address?.trim()
+        || latestCustomerByPhone?.address?.trim()
+        || null;
+
+      return NextResponse.json({ customerAddress });
     }
 
     const { drivers, products } = await loadOrdersMeta();

@@ -278,6 +278,10 @@ export default function StockMovementsPage() {
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     const normalizedItems = items
       .map((item) => ({ productId: item.productId, quantity: Number(item.quantity) }))
       .filter((item) => item.productId && Number.isFinite(item.quantity) && item.quantity > 0);
@@ -294,6 +298,14 @@ export default function StockMovementsPage() {
 
     const parsedFrom = parseLocation(fromLocation);
     const parsedTo = parseLocation(toLocation);
+
+    const confirmed = window.confirm(
+      `Энэ барааны хөдөлгөөнийг хадгалах уу?\n\nХаанаас: ${locationOptions.find((option) => option.value === fromLocation)?.label ?? "-"}\nХаашаа: ${locationOptions.find((option) => option.value === toLocation)?.label ?? "-"}\nМөрийн тоо: ${normalizedItems.length}`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
 
     setIsSubmitting(true);
     try {

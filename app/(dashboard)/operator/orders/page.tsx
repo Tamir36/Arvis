@@ -773,6 +773,22 @@ export default function OperatorOrdersPage() {
     return false;
   }, []);
 
+  const handleCustomerPhoneInputChange = useCallback((value: string) => {
+    const prevNormalized = normalizeMnPhone(customerPhone);
+    const nextNormalized = normalizeMnPhone(value);
+
+    setCustomerPhone(value);
+
+    // If the phone changes, clear the previous phone's address to avoid carrying it over.
+    if (prevNormalized !== nextNormalized) {
+      setShippingAddress("");
+    }
+  }, [customerPhone]);
+
+  const handleShippingAddressInputChange = useCallback((value: string) => {
+    setShippingAddress(value);
+  }, []);
+
   const fetchData = useCallback(async () => {
     const requestId = ++latestFetchRequestRef.current;
     fetchAbortRef.current?.abort();
@@ -974,6 +990,10 @@ export default function OperatorOrdersPage() {
   }, [detailsDraft, products]);
 
   const handleCreateOrder = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     const filledItems = registrationItems.filter((item) => item.productId);
 
     if (filledItems.length === 0) {
@@ -1041,9 +1061,22 @@ export default function OperatorOrdersPage() {
         }),
       });
 
-      const json = await response.json();
+      const responseText = await response.text();
+      let json: any = {};
+      if (responseText) {
+        try {
+          json = JSON.parse(responseText);
+        } catch {
+          json = {};
+        }
+      }
+
       if (!response.ok) {
-        throw new Error(json.error ?? "Захиалга хадгалах үед алдаа гарлаа");
+        const serverMessage = typeof json?.error === "string" ? json.error.trim() : "";
+        if (!serverMessage || serverMessage === "Алдаа гарлаа") {
+          throw new Error(`Захиалга хадгалах үед алдаа гарлаа (HTTP ${response.status})`);
+        }
+        throw new Error(serverMessage);
       }
 
       upsertOrderRow(json);
@@ -1195,7 +1228,7 @@ export default function OperatorOrdersPage() {
       setOpenDetails(cached);
       setDetailsDraft({
         customerPhone: cached.customer.phone || "",
-        shippingAddress: cached.shippingAddress || cached.customer.address || "",
+        shippingAddress: cached.shippingAddress || "",
         assignedDriverId: cached.assignedTo?.id ?? "",
         status: cached.status,
         paymentStatus: cached.paymentStatus,
@@ -1227,7 +1260,7 @@ export default function OperatorOrdersPage() {
       setOpenDetails(orderDetails);
       setDetailsDraft({
         customerPhone: orderDetails.customer.phone || "",
-        shippingAddress: orderDetails.shippingAddress || orderDetails.customer.address || "",
+        shippingAddress: orderDetails.shippingAddress || "",
         assignedDriverId: orderDetails.assignedTo?.id ?? "",
         status: orderDetails.status,
         paymentStatus: orderDetails.paymentStatus,
@@ -1580,6 +1613,8 @@ export default function OperatorOrdersPage() {
   };
 
   const handleRegistrationProductQueryChange = (itemId: string, query: string) => {
+    // Keep the suggestion list active while the user is typing so matches reappear immediately.
+    setActiveRegistrationProductId(itemId);
     setRegistrationProductQueries((current) => ({ ...current, [itemId]: query }));
     const normalized = query.trim().toLowerCase();
     const matched = products.find((product) => product.name.trim().toLowerCase() === normalized);
@@ -1905,7 +1940,7 @@ export default function OperatorOrdersPage() {
                     <td className="px-2 py-1.5 align-top">
                       <input
                         value={customerPhone}
-                        onChange={(e) => setCustomerPhone(e.target.value)}
+                        onChange={(e) => handleCustomerPhoneInputChange(e.target.value)}
                         placeholder="Дугаар"
                         className={`${INPUT_CLASS} !w-[10ch] px-1.5`}
                       />
@@ -1914,7 +1949,7 @@ export default function OperatorOrdersPage() {
                       <textarea
                         value={shippingAddress}
                         onChange={(e) => {
-                          setShippingAddress(e.target.value);
+                          handleShippingAddressInputChange(e.target.value);
                           autoResizeTextarea(e.currentTarget);
                         }}
                         onInput={(e) => autoResizeTextarea(e.currentTarget)}
@@ -2148,7 +2183,7 @@ export default function OperatorOrdersPage() {
                         <td className="px-2 py-1.5 text-slate-500">{index + 1}</td>
                         <td className="px-2 py-1.5 whitespace-nowrap text-slate-700">{formatDateOnly(orderDisplayDate)}</td>
                         <td className="px-2 py-1.5 text-slate-700 whitespace-nowrap">{order.customer.phone}</td>
-                        <td className="px-2 py-1.5 align-top text-slate-700 whitespace-pre-wrap break-words">{order.shippingAddress || order.customer.address || "-"}</td>
+                        <td className="px-2 py-1.5 align-top text-slate-700 whitespace-pre-wrap break-words">{order.shippingAddress || "-"}</td>
                         <td className={`px-2 py-1.5 text-slate-700 ${hasMultipleProductTypes ? "whitespace-pre-wrap break-words" : "truncate"}`} title={productListTitle}>{productText}</td>
                         <td className="px-2 py-1.5 text-center text-slate-700">{qtyTotal}</td>
                         <td className="px-2 py-1.5 text-right whitespace-nowrap">
@@ -2457,10 +2492,15 @@ export default function OperatorOrdersPage() {
                                           event.preventDefault();
                                           handleSelectDraftProduct(index, product);
                                         }}
-                                        className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+                                        className="flex w-full items-start justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-slate-100"
                                       >
-                                        <span className="truncate text-slate-700">{getProductDisplayLabel(product)}</span>
-                                        <span className="text-xs text-slate-400">{formatPrice(product.basePrice)}</span>
+                                        <span
+                                          className="flex-1 whitespace-normal break-words leading-5 text-slate-700"
+                                          title={getProductDisplayLabel(product)}
+                                        >
+                                          {getProductDisplayLabel(product)}
+                                        </span>
+                                        <span className="shrink-0 pt-0.5 text-xs text-slate-400">{formatPrice(product.basePrice)}</span>
                                       </button>
                                     ))}
                                 </div>
