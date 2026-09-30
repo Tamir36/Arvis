@@ -774,16 +774,8 @@ export default function OperatorOrdersPage() {
   }, []);
 
   const handleCustomerPhoneInputChange = useCallback((value: string) => {
-    const prevNormalized = normalizeMnPhone(customerPhone);
-    const nextNormalized = normalizeMnPhone(value);
-
     setCustomerPhone(value);
-
-    // If the phone changes, clear the previous phone's address to avoid carrying it over.
-    if (prevNormalized !== nextNormalized) {
-      setShippingAddress("");
-    }
-  }, [customerPhone]);
+  }, []);
 
   const handleShippingAddressInputChange = useCallback((value: string) => {
     setShippingAddress(value);
