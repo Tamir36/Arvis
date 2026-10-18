@@ -21,6 +21,8 @@ const productSchema = z.object({
   categoryId: z.string().optional(),
   basePrice: z.coerce.number().min(0, "Үнэ заавал оруулна уу"),
   status: z.enum(["ACTIVE", "DRAFT"]),
+  sku: z.string().optional(),
+  barcode: z.string().optional(),
   quantity: z.coerce.number().min(0).default(0),
 });
 
@@ -158,6 +160,19 @@ export default function NewProductPage() {
                     error={errors.name?.message}
                     {...register("name")}
                   />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Input
+                      label="1-р код (барааны төрөл)"
+                      placeholder="Ж: 01ulguurteigutal"
+                      {...register("sku")}
+                    />
+                    <Input
+                      label="2-р код (өнгө/размер)"
+                      placeholder="Ж: tsagaan"
+                      {...register("barcode")}
+                    />
+                  </div>
 
                   {/* Description */}
                   <div className="space-y-1.5">

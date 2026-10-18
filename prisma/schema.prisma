@@ -80,7 +80,7 @@ model Product {
   category     Category?     @relation(fields: [categoryId], references: [id])
   basePrice    Decimal       @db.Decimal(10, 2)
   status       ProductStatus @default(DRAFT)
-  sku          String?       @unique
+  sku          String?
   barcode      String?
   weight       Float?
   volume       Float?
@@ -98,6 +98,8 @@ model Product {
   driverStocks DriverStock[]
   transferItems InventoryTransferItem[]
   inventoryReportItems InventoryReportItem[]
+
+  @@index([sku])
 
   @@map("products")
 }

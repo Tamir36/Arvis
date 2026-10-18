@@ -51,6 +51,7 @@ const adminNav: AdminNavEntry[] = [
   { type: "item", href: "/admin/reports/driver", label: "Жолоочийн тайлан", icon: <BarChart3 className="w-4.5 h-4.5" /> },
   { type: "item", href: "/admin/reports/operator", label: "KPI тайлан", icon: <FileText className="w-4.5 h-4.5" /> },
   { type: "item", href: "/admin/reports/operator-entries", label: "Тэмдэглэл/хаяг тайлан", icon: <FileText className="w-4.5 h-4.5" /> },
+  { type: "item", href: "/admin/reports/sales", label: "Борлуулалтын тайлан", icon: <FileText className="w-4.5 h-4.5" /> },
   { type: "item", href: "/admin/reports/inventory", label: "Бараа материалын тайлан", icon: <ClipboardList className="w-4.5 h-4.5" /> },
 ];
 
@@ -92,7 +93,7 @@ export default function Sidebar() {
   const role = session?.user?.role ?? "";
   const navItems = getNavItems(role);
   const productNavItems = new Set(["/admin/products", "/admin/stock", "/admin/stock-movements"]);
-  const reportNavItems = new Set(["/admin/reports/driver", "/admin/reports/operator", "/admin/reports/operator-entries", "/admin/reports/inventory"]);
+  const reportNavItems = new Set(["/admin/reports/driver", "/admin/reports/operator", "/admin/reports/operator-entries", "/admin/reports/sales", "/admin/reports/inventory"]);
 
   const isActive = (href: string) => {
     if (href === "/admin" || href === "/operator" || href === "/driver") {

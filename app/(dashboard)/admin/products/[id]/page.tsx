@@ -72,6 +72,8 @@ interface ProductDetail {
   id: string;
   name: string;
   slug: string;
+  sku: string | null;
+  barcode: string | null;
   description: string | null;
   status: "ACTIVE" | "DRAFT" | "OUT_OF_STOCK";
   basePrice: number;
@@ -112,6 +114,8 @@ export default function ProductDetailPage() {
     categoryId: "",
     basePrice: "0",
     status: "DRAFT",
+    sku: "",
+    barcode: "",
     description: "",
   });
 
@@ -154,6 +158,8 @@ export default function ProductDetailPage() {
         categoryId: productData.categoryId ?? "",
         basePrice: String(productData.basePrice ?? 0),
         status: productData.status ?? "DRAFT",
+        sku: productData.sku ?? "",
+        barcode: productData.barcode ?? "",
         description: productData.description ?? "",
       });
       setEditImageFiles([]);
@@ -234,6 +240,8 @@ export default function ProductDetailPage() {
           categoryId: editForm.categoryId || null,
           basePrice: Number(editForm.basePrice),
           status: editForm.status,
+          sku: editForm.sku.trim() || null,
+          barcode: editForm.barcode.trim() || null,
           description: editForm.description,
           images: [...existingImageUrls, ...uploadedUrls],
         }),
@@ -457,6 +465,16 @@ export default function ProductDetailPage() {
                       value={editForm.basePrice}
                       onChange={(e) => setEditForm((prev) => ({ ...prev, basePrice: e.target.value }))}
                     />
+                    <Input
+                      label="1-р код (барааны төрөл)"
+                      value={editForm.sku}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, sku: e.target.value }))}
+                    />
+                    <Input
+                      label="2-р код (өнгө/размер)"
+                      value={editForm.barcode}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, barcode: e.target.value }))}
+                    />
                     <Select
                       label="Статус"
                       options={statusOptions}
@@ -511,6 +529,14 @@ export default function ProductDetailPage() {
                     <div>
                       <p className="text-xs text-slate-400">Үнэ</p>
                       <p className="text-slate-800 font-semibold">{formatPrice(product.basePrice)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400">1-р код (барааны төрөл)</p>
+                      <p className="text-slate-700">{product.sku || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400">2-р код (өнгө/размер)</p>
+                      <p className="text-slate-700">{product.barcode || "-"}</p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-400">Статус</p>

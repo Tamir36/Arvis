@@ -14,6 +14,8 @@ const productUpdateSchema = z.object({
   categoryId: z.string().nullable().optional(),
   basePrice: z.coerce.number().min(0).optional(),
   status: z.enum(["ACTIVE", "DRAFT"]).optional(),
+  sku: z.string().nullable().optional(),
+  barcode: z.string().nullable().optional(),
   description: z.string().optional(),
   images: z.array(z.string()).optional(),
 });
@@ -247,11 +249,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<Para
       return NextResponse.json({ error: "Бараа олдсонгүй" }, { status: 404 });
     }
 
-    const { name, categoryId, basePrice, status, description, images } = parsed.data;
+    const { name, categoryId, basePrice, status, sku, barcode, description, images } = parsed.data;
 
     const updateData: Prisma.ProductUpdateInput = {
       ...(typeof basePrice === "number" ? { basePrice: new Prisma.Decimal(basePrice) } : {}),
       ...(status ? { status } : {}),
+      ...(sku !== undefined ? { sku: sku?.trim() || null } : {}),
+      ...(barcode !== undefined ? { barcode: barcode?.trim() || null } : {}),
       ...(typeof description === "string" ? { description } : {}),
       ...(categoryId !== undefined
         ? categoryId
