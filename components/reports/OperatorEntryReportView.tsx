@@ -28,6 +28,13 @@ interface OperatorOption {
   name: string;
 }
 
+interface OperatorEntriesPagination {
+  page: number;
+  pageSize: number;
+  totalEntries: number;
+  totalPages: number;
+}
+
 const ENTRY_ACTION_LABEL: Record<string, string> = {
   ADDRESS_CHANGED: "Хаяг",
   NOTES_CHANGED: "Тэмдэглэл",
@@ -60,6 +67,13 @@ export default function OperatorEntryReportView() {
   const [selectedActionTypes, setSelectedActionTypes] = useState<string[]>([]);
   const [openActionTypeDropdownGroupId, setOpenActionTypeDropdownGroupId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<OperatorEntriesPagination>({
+    page: 1,
+    pageSize: 50,
+    totalEntries: 0,
+    totalPages: 1,
+  });
 
   useEffect(() => {
     if (!openActionTypeDropdownGroupId) return;
@@ -94,7 +108,7 @@ export default function OperatorEntryReportView() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = new URLSearchParams({ fromDate, toDate });
+      const params = new URLSearchParams({ fromDate, toDate, page: String(page), pageSize: "50" });
       const res = await window.fetch(`/api/reports/operator-entries?${params.toString()}`);
       if (!res.ok) throw new Error("Failed");
 
@@ -105,6 +119,12 @@ export default function OperatorEntryReportView() {
         operatorId: String(group.operatorId ?? ""),
       }));
       setAllGroups(normalizedData);
+      setPagination({
+        page: Number(json.pagination?.page ?? 1),
+        pageSize: Number(json.pagination?.pageSize ?? 50),
+        totalEntries: Number(json.pagination?.totalEntries ?? 0),
+        totalPages: Number(json.pagination?.totalPages ?? 1),
+      });
 
       const operatorMap = new Map<string, string>();
       for (const group of normalizedData) {
@@ -118,11 +138,15 @@ export default function OperatorEntryReportView() {
     } finally {
       setIsLoading(false);
     }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, page]);
 
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [fromDate, toDate]);
 
   const groups = useMemo(() => {
     let result = selectedOperatorId
@@ -219,6 +243,30 @@ export default function OperatorEntryReportView() {
           <div className="w-[110px] rounded-xl bg-green-50 p-2.5 text-green-700">
             <p className="mt-0.5 text-[11px] font-medium leading-tight opacity-70">Хаяг</p>
             <p className="text-lg font-bold leading-tight">{countByType("ADDRESS_CHANGED")}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+          <div>
+            Хуудас {pagination.page} / {Math.max(1, pagination.totalPages)} | Нийт бичлэг: {pagination.totalEntries}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={isLoading || pagination.page <= 1}
+              className="rounded-lg border border-slate-200 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Өмнөх
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(Math.max(1, pagination.totalPages), current + 1))}
+              disabled={isLoading || pagination.page >= Math.max(1, pagination.totalPages)}
+              className="rounded-lg border border-slate-200 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Дараах
+            </button>
           </div>
         </div>
 

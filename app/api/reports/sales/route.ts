@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getOrderIdsWithLatestStatusInRange } from "@/lib/status-changes";
+import { getOrSetReportCache, invalidateReportCache } from "@/lib/report-cache";
 
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
+const SALES_REPORT_CACHE_TTL_MS = 30_000;
 
 function businessDayStart(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
@@ -165,110 +167,112 @@ export async function GET(req: NextRequest) {
     const toStart = parsedFrom <= parsedTo ? parsedTo : parsedFrom;
     const dayEnd = new Date(nextBusinessDay(toStart).getTime() - 1);
 
-    const dayCount = dayDiffInclusive(dayStart, toStart);
+    const cacheKey = `report:sales:${formatYmd(dayStart)}:${formatYmd(toStart)}`;
+    const payload = await getOrSetReportCache(cacheKey, SALES_REPORT_CACHE_TTL_MS, async () => {
+      const dayCount = dayDiffInclusive(dayStart, toStart);
 
-    const [reportItemsRaw, products] = await Promise.all([
-      prisma.$queryRawUnsafe<Array<{
-        id: string;
-        product_id: string;
-        daily_ad_cost: unknown;
-        unit_ad_cap: unknown;
-      }>>(
-        "SELECT id, product_id, daily_ad_cost, unit_ad_cap FROM sales_report_items ORDER BY created_at ASC",
-      ),
-      prisma.product.findMany({
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          sku: true,
-          barcode: true,
-        },
-        orderBy: { name: "asc" },
-      }),
-    ]);
-
-    const deliveredOrderIds = await getDeliveredOrderIds(dayStart, dayEnd);
-
-    const deliveredOrderItems = deliveredOrderIds.length > 0
-      ? await prisma.orderItem.findMany({
-          where: {
-            orderId: { in: deliveredOrderIds },
-          },
+      const [reportItemsRaw, products] = await Promise.all([
+        prisma.$queryRawUnsafe<Array<{
+          id: string;
+          product_id: string;
+          daily_ad_cost: unknown;
+          unit_ad_cap: unknown;
+        }>>(
+          "SELECT id, product_id, daily_ad_cost, unit_ad_cap FROM sales_report_items ORDER BY created_at ASC",
+        ),
+        prisma.product.findMany({
           select: {
-            qty: true,
-            product: {
-              select: {
-                id: true,
-                sku: true,
-                barcode: true,
-              },
-            },
+            id: true,
+            name: true,
+            status: true,
+            sku: true,
+            barcode: true,
           },
-        })
-      : [];
+          orderBy: { name: "asc" },
+        }),
+      ]);
 
-    const soldQtyByReportCode = new Map<string, number>();
-    for (const orderItem of deliveredOrderItems) {
-      const code = toReportCode({
-        id: orderItem.product.id,
-        sku: orderItem.product.sku,
-        barcode: orderItem.product.barcode,
-      });
-      soldQtyByReportCode.set(code, (soldQtyByReportCode.get(code) ?? 0) + Number(orderItem.qty ?? 0));
-    }
+      const deliveredOrderIds = await getDeliveredOrderIds(dayStart, dayEnd);
 
-    const productById = new Map(products.map((product) => [product.id, product]));
+      const soldQtyByProduct = deliveredOrderIds.length > 0
+        ? await prisma.orderItem.groupBy({
+            by: ["productId"],
+            where: {
+              orderId: { in: deliveredOrderIds },
+            },
+            _sum: {
+              qty: true,
+            },
+          })
+        : [];
 
-    const items = reportItemsRaw
-      .map((row) => {
-        const product = productById.get(row.product_id);
-        if (!product) return null;
+      const productById = new Map(products.map((product) => [product.id, product]));
 
-        const reportCode = toReportCode({
+      const soldQtyByReportCode = new Map<string, number>();
+      for (const grouped of soldQtyByProduct) {
+        const product = productById.get(grouped.productId);
+        if (!product) continue;
+
+        const code = toReportCode({
           id: product.id,
           sku: product.sku,
           barcode: product.barcode,
-        });
+        })
+        soldQtyByReportCode.set(code, (soldQtyByReportCode.get(code) ?? 0) + Number(grouped._sum.qty ?? 0));
+      }
 
-        const soldQty = soldQtyByReportCode.get(reportCode) ?? 0;
-        return {
-          id: row.id,
-          productId: row.product_id,
-          productCode: reportCode,
-          productStatus: product.status,
+      const items = reportItemsRaw
+        .map((row) => {
+          const product = productById.get(row.product_id);
+          if (!product) return null;
+
+          const reportCode = toReportCode({
+            id: product.id,
+            sku: product.sku,
+            barcode: product.barcode,
+          });
+
+          const soldQty = soldQtyByReportCode.get(reportCode) ?? 0;
+          return {
+            id: row.id,
+            productId: row.product_id,
+            productCode: reportCode,
+            productStatus: product.status,
+            familyCode: product.sku ?? null,
+            variantCode: product.barcode ?? null,
+            dailyAdCost: toNumber(row.daily_ad_cost),
+            unitAdCap: toNumber(row.unit_ad_cap),
+            soldQty,
+          };
+        })
+        .filter(Boolean) as Array<{
+          id: string;
+          productId: string;
+          productCode: string;
+          productStatus: string;
+          familyCode: string | null;
+          variantCode: string | null;
+          dailyAdCost: number;
+          unitAdCap: number;
+          soldQty: number;
+        }>;
+
+      return {
+        fromDate: formatYmd(dayStart),
+        toDate: formatYmd(toStart),
+        dayCount,
+        products: products.map((product) => ({
+          id: product.id,
+          name: product.name,
+          status: product.status,
           familyCode: product.sku ?? null,
           variantCode: product.barcode ?? null,
-          dailyAdCost: toNumber(row.daily_ad_cost),
-          unitAdCap: toNumber(row.unit_ad_cap),
-          soldQty,
-        };
-      })
-      .filter(Boolean) as Array<{
-        id: string;
-        productId: string;
-        productCode: string;
-        productStatus: string;
-        familyCode: string | null;
-        variantCode: string | null;
-        dailyAdCost: number;
-        unitAdCap: number;
-        soldQty: number;
-      }>;
-
-    return NextResponse.json({
-      fromDate: formatYmd(dayStart),
-      toDate: formatYmd(toStart),
-      dayCount,
-      products: products.map((product) => ({
-        id: product.id,
-        name: product.name,
-        status: product.status,
-        familyCode: product.sku ?? null,
-        variantCode: product.barcode ?? null,
-      })),
-      items,
+        })),
+        items,
+      };
     });
+
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Sales report GET error:", error);
     return NextResponse.json({ error: "Алдаа гарлаа" }, { status: 500 });
@@ -341,6 +345,8 @@ export async function POST(req: NextRequest) {
       unitAdCap,
     );
 
+    invalidateReportCache("report:sales:");
+
     return NextResponse.json({ success: true, id }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : String(error ?? "").toLowerCase();
@@ -382,6 +388,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Мөр олдсонгүй" }, { status: 404 });
     }
 
+    invalidateReportCache("report:sales:");
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Sales report PATCH error:", error);
@@ -406,6 +414,8 @@ export async function DELETE(req: NextRequest) {
     }
 
     await prisma.$executeRawUnsafe("DELETE FROM sales_report_items WHERE id = ?", id);
+
+    invalidateReportCache("report:sales:");
 
     return NextResponse.json({ success: true });
   } catch (error) {

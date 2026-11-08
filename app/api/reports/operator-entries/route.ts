@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getOrSetReportCache } from "@/lib/report-cache";
 
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
+const OPERATOR_ENTRIES_CACHE_TTL_MS = 30_000;
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
 
 function businessDayStart(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
@@ -61,81 +65,112 @@ export async function GET(request: Request) {
 
   const dayStart = fromDateValue;
   const dayEnd = new Date(nextBusinessDay(toDateValue).getTime() - 1);
+  const rawPage = Number(searchParams.get("page") ?? "1");
+  const rawPageSize = Number(searchParams.get("pageSize") ?? String(DEFAULT_PAGE_SIZE));
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+  const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0
+    ? Math.min(MAX_PAGE_SIZE, Math.floor(rawPageSize))
+    : DEFAULT_PAGE_SIZE;
+  const skip = (page - 1) * pageSize;
+  const cacheKey = [
+    "report:operator-entries",
+    dayStart.toISOString(),
+    dayEnd.toISOString(),
+    String(page),
+    String(pageSize),
+  ].join(":");
 
-  const logs = await prisma.orderAuditLog.findMany({
-    where: {
+  const payload = await getOrSetReportCache(cacheKey, OPERATOR_ENTRIES_CACHE_TTL_MS, async () => {
+    const where = {
       action: { in: ["ADDRESS_CHANGED", "NOTES_CHANGED", "NOTE_ADDED", "STATUS_CHANGED", "DRIVER_CHANGED"] },
       createdAt: { gte: dayStart, lte: dayEnd },
-      user: { role: "OPERATOR" },
+      user: { role: "OPERATOR" as const },
       NOT: [{ newValue: null }, { newValue: "" }],
-    },
-    select: {
-      orderId: true,
-      action: true,
-      oldValue: true,
-      newValue: true,
-      createdAt: true,
-      user: { select: { id: true, name: true } },
-      order: {
+    };
+
+    const [totalEntries, logs] = await prisma.$transaction([
+      prisma.orderAuditLog.count({ where }),
+      prisma.orderAuditLog.findMany({
+        where,
         select: {
-          orderNumber: true,
-          customer: { select: { phone: true } },
+          orderId: true,
+          action: true,
+          oldValue: true,
+          newValue: true,
+          createdAt: true,
+          user: { select: { id: true, name: true } },
+          order: {
+            select: {
+              orderNumber: true,
+              customer: { select: { phone: true } },
+            },
+          },
         },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: pageSize,
+      }),
+    ]);
 
-  const grouped = new Map<
-    string,
-    {
-      operatorId: string;
-      operatorName: string;
-      entries: {
-        orderId: string;
-        orderNumber: string;
-        customerPhone: string;
-        action: string;
-        oldValue: string;
-        value: string;
-        createdAt: Date;
-      }[];
-    }
-  >();
+    const grouped = new Map<
+      string,
+      {
+        operatorId: string;
+        operatorName: string;
+        entries: {
+          orderId: string;
+          orderNumber: string;
+          customerPhone: string;
+          action: string;
+          oldValue: string;
+          value: string;
+          createdAt: Date;
+        }[];
+      }
+    >();
 
-  for (const log of logs) {
-    const key = log.user.id;
-    if (!grouped.has(key)) {
-      grouped.set(key, {
-        operatorId: log.user.id,
-        operatorName: log.user.name,
-        entries: [],
+    for (const log of logs) {
+      const key = log.user.id;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          operatorId: log.user.id,
+          operatorName: log.user.name,
+          entries: [],
+        });
+      }
+
+      grouped.get(key)!.entries.push({
+        orderId: log.orderId,
+        orderNumber: log.order.orderNumber,
+        customerPhone: log.order.customer.phone,
+        action: log.action,
+        oldValue: String(log.oldValue ?? "").trim(),
+        value: String(log.newValue ?? "").trim(),
+        createdAt: log.createdAt,
       });
     }
 
-    grouped.get(key)!.entries.push({
-      orderId: log.orderId,
-      orderNumber: log.order.orderNumber,
-      customerPhone: log.order.customer.phone,
-      action: log.action,
-      oldValue: String(log.oldValue ?? "").trim(),
-      value: String(log.newValue ?? "").trim(),
-      createdAt: log.createdAt,
-    });
-  }
+    const result = Array.from(grouped.values())
+      .map((group) => ({
+        operatorId: group.operatorId,
+        operatorName: group.operatorName,
+        totalEntries: group.entries.length,
+        entries: group.entries,
+      }))
+      .sort((a, b) => a.operatorName.localeCompare(b.operatorName));
 
-  const result = Array.from(grouped.values())
-    .map((group) => ({
-      operatorId: group.operatorId,
-      operatorName: group.operatorName,
-      totalEntries: group.entries.length,
-      entries: group.entries,
-    }))
-    .sort((a, b) => a.operatorName.localeCompare(b.operatorName));
-
-  return NextResponse.json({
-    data: result,
-    fromDate: dayStart.toISOString(),
-    toDate: dayEnd.toISOString(),
+    return {
+      data: result,
+      fromDate: dayStart.toISOString(),
+      toDate: dayEnd.toISOString(),
+      pagination: {
+        page,
+        pageSize,
+        totalEntries,
+        totalPages: Math.max(1, Math.ceil(totalEntries / pageSize)),
+      },
+    };
   });
+
+  return NextResponse.json(payload);
 }
