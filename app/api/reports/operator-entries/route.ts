@@ -5,8 +5,6 @@ import { getOrSetReportCache } from "@/lib/report-cache";
 
 const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
 const OPERATOR_ENTRIES_CACHE_TTL_MS = 30_000;
-const DEFAULT_PAGE_SIZE = 50;
-const MAX_PAGE_SIZE = 200;
 
 function businessDayStart(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - BUSINESS_UTC_OFFSET_MINUTES * 60 * 1000);
@@ -65,19 +63,10 @@ export async function GET(request: Request) {
 
   const dayStart = fromDateValue;
   const dayEnd = new Date(nextBusinessDay(toDateValue).getTime() - 1);
-  const rawPage = Number(searchParams.get("page") ?? "1");
-  const rawPageSize = Number(searchParams.get("pageSize") ?? String(DEFAULT_PAGE_SIZE));
-  const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
-  const pageSize = Number.isFinite(rawPageSize) && rawPageSize > 0
-    ? Math.min(MAX_PAGE_SIZE, Math.floor(rawPageSize))
-    : DEFAULT_PAGE_SIZE;
-  const skip = (page - 1) * pageSize;
   const cacheKey = [
     "report:operator-entries",
     dayStart.toISOString(),
     dayEnd.toISOString(),
-    String(page),
-    String(pageSize),
   ].join(":");
 
   const payload = await getOrSetReportCache(cacheKey, OPERATOR_ENTRIES_CACHE_TTL_MS, async () => {
@@ -88,29 +77,24 @@ export async function GET(request: Request) {
       NOT: [{ newValue: null }, { newValue: "" }],
     };
 
-    const [totalEntries, logs] = await prisma.$transaction([
-      prisma.orderAuditLog.count({ where }),
-      prisma.orderAuditLog.findMany({
-        where,
-        select: {
-          orderId: true,
-          action: true,
-          oldValue: true,
-          newValue: true,
-          createdAt: true,
-          user: { select: { id: true, name: true } },
-          order: {
-            select: {
-              orderNumber: true,
-              customer: { select: { phone: true } },
-            },
+    const logs = await prisma.orderAuditLog.findMany({
+      where,
+      select: {
+        orderId: true,
+        action: true,
+        oldValue: true,
+        newValue: true,
+        createdAt: true,
+        user: { select: { id: true, name: true } },
+        order: {
+          select: {
+            orderNumber: true,
+            customer: { select: { phone: true } },
           },
         },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: pageSize,
-      }),
-    ]);
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
     const grouped = new Map<
       string,
@@ -163,12 +147,6 @@ export async function GET(request: Request) {
       data: result,
       fromDate: dayStart.toISOString(),
       toDate: dayEnd.toISOString(),
-      pagination: {
-        page,
-        pageSize,
-        totalEntries,
-        totalPages: Math.max(1, Math.ceil(totalEntries / pageSize)),
-      },
     };
   });
 
