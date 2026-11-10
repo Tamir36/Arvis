@@ -127,55 +127,16 @@ export async function getOrderIdsWithLatestStatusInRange(
     return [];
   }
 
-  const activeRows = await db.orderAuditLog.findMany({
-    where: {
-      action: "STATUS_CHANGED",
-      newValue: status,
-      createdAt: {
-        gte: range.gte,
-        lte: range.lte,
-      },
-      ...(options?.orderIds ? { orderId: { in: options.orderIds } } : {}),
-    },
-    distinct: ["orderId"],
-    select: {
-      orderId: true,
-    },
-  });
-
-  const activeOrderIds = activeRows.map((row) => row.orderId);
-
-  // We archive logs older than 90 days; include archive only when query range can touch old data.
-  const cutoff = cutoffDateDaysAgo(90);
-  const shouldReadArchive = !range.gte || range.gte < cutoff;
-
-  if (!shouldReadArchive) {
-    return activeOrderIds;
-  }
-
-  const archiveWhereIds = options?.orderIds && options.orderIds.length > 0
-    ? ` AND orderId IN (${options.orderIds.map(() => "?").join(",")})`
-    : "";
-
-  const archiveRows = await fetchArchiveRowsSafe<Array<{ orderId: string }>>(
-    db,
-    `
-      SELECT DISTINCT orderId
-      FROM order_audit_logs_archive
-      WHERE action = ?
-        AND newValue = ?
-        AND createdAt >= ?
-        AND createdAt <= ?
-        ${archiveWhereIds}
-    `,
-    "STATUS_CHANGED",
-    status,
-    range.gte ?? new Date("1970-01-01T00:00:00.000Z"),
-    range.lte ?? new Date("2999-12-31T23:59:59.999Z"),
-    ...(options?.orderIds ?? []),
-  );
-
-  return Array.from(new Set([...activeOrderIds, ...archiveRows.map((row) => row.orderId)]));
+  // Use the latest status-change timestamp per order, then apply date range.
+  const latestRows = await getLatestStatusChangesByOrder(db, status, options);
+  return latestRows
+    .filter((row) => {
+      if (!row.changedAt) return false;
+      if (range.gte && row.changedAt < range.gte) return false;
+      if (range.lte && row.changedAt > range.lte) return false;
+      return true;
+    })
+    .map((row) => row.orderId);
 }
 
 export async function getLatestStatusChangedAtByOrderStatus(
