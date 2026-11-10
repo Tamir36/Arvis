@@ -200,7 +200,21 @@ export async function GET(request: Request) {
       statuses: [...DRIVER_REPORT_TERMINAL_STATUSES],
     });
 
-    orders.sort((a, b) => {
+    const filteredOrders = orders.filter((order) => {
+      const currentStatus = String(order.status).toUpperCase();
+      const statusChangedAt = latestTerminalAtByOrderStatus.get(`${order.id}:${currentStatus}`) ?? order.updatedAt;
+      return statusChangedAt >= dayStart && statusChangedAt <= dayEnd;
+    });
+
+    if (filteredOrders.length === 0) {
+      return {
+        data: [],
+        fromDate: dayStart.toISOString(),
+        toDate: rangeEndStart.toISOString(),
+      };
+    }
+
+    filteredOrders.sort((a, b) => {
       const aStatus = String(a.status).toUpperCase();
       const bStatus = String(b.status).toUpperCase();
       const aStatusChangedAt = latestTerminalAtByOrderStatus.get(`${a.id}:${aStatus}`) ?? a.updatedAt;
@@ -243,7 +257,7 @@ export async function GET(request: Request) {
       }
     >();
 
-    for (const order of orders) {
+    for (const order of filteredOrders) {
       const effectiveDriverId = order.assignedToId ?? order.delivery?.agent?.userId ?? null;
       const effectiveDriverName = order.assignedTo?.name ?? order.delivery?.agent?.user?.name ?? "Жолооч";
       if (!effectiveDriverId) continue;
